@@ -58,6 +58,22 @@ ports:
         failure_modes: [signature_invalid, duplicate]   # duplicate = no-op idempotente (ADR-008)
         idempotent: true             # chave: charge_id
 
+      refund_pix:
+        description: >
+          Devolve ao cliente o valor pago (caso "pago, não entregue" — estado REFUNDING).
+          MVP: status mvp_manual — devolução operacional/manual (runbook); a assinatura
+          abaixo reserva o port para a versão programática. TODO: confirmar se a Eulen
+          expõe devolução de PIX via API (ADR-012 / pauta).
+        status: mvp_manual
+        inputs:
+          charge_id: string          # cobrança original a devolver
+          amount_brl: decimal
+        outputs:
+          refund_id: string
+          status: enum               # requested | completed | failed
+        failure_modes: [not_supported, rejected, provider_unavailable]
+        idempotent: true             # chave: cash_in_id:refund (state-machine.yaml)
+
   # ---------------------------------------------------------------------------
   exchange:
     description: Catálogo, compra spot, saque on-chain e sub-contas.
@@ -135,7 +151,19 @@ ports:
 # Lunium.md §7). Monitor em tempo real (MEXC): WebSocket privado, polling fallback.
 # ---------------------------------------------------------------------------
 cross_cutting:
-  idempotency: TODO          # chave de idempotência por etapa (ADR-007) — ver state-machine.yaml
-  retry: TODO                # retry/backoff/dead-letter via fila (ADR-007)
-  error_normalization: TODO  # erro do provedor -> failure_mode normalizado acima
-  rate_limits: TODO          # ex.: Eulen ~10 ops/min — TODO: confirmar com conta nova
+  # Mecanismos DECIDIDOS; valores específicos de provedor (números) seguem TODO (Faixa B).
+  idempotency:
+    by: per_step
+    keys: state-machine.yaml   # chave natural por etapa: cash_in_id[:step] | charge_id | order_id | withdrawal_id
+    enforcement: db_unique_constraint   # chave persistida com unique no Postgres (ADR-004); repetição = no-op
+  outbox:
+    enabled: true              # enfileira o próximo job na MESMA transação ACID da transição (ADR-013)
+  retry:
+    via: queue                 # BullMQ/Redis (ADR-007)
+    policy: { max_attempts: TODO, backoff: exponential, dead_letter: true }
+    on_exhaustion: failure_state   # cada transição define o estado de falha (state-machine.yaml)
+  error_normalization:
+    rule: provider_error_to_failure_mode   # todo adapter mapeia erro do provedor -> failure_mode listado acima
+  rate_limits:
+    eulen: ~10 ops/min         # TODO: confirmar com a conta nova (Faixa B)
+    mexc: TODO                 # TODO: rate limits de API + limites de saque por rede (Faixa B)

@@ -3,8 +3,9 @@
 # Máquina de estados CANÔNICA do cash-in determinístico — FONTE ÚNICA.
 #
 # Arquivo para MÁQUINA: parseado na geração de código e em runtime. Não é prosa.
-# STATUS: rascunho — revisar. (Estados/transições APROVADOS, incl. liquidez;
-# faltam só valores operacionais: timeouts, retries, chaves de idempotência.)
+# STATUS: rascunho — revisar. (Estados/transições APROVADOS, incl. liquidez,
+# refund e revisão manual; faltam só VALORES operacionais: timeouts e retries —
+# esses dependem das integrações/Faixa B e da reunião.)
 #
 # Fluxo (Lunium.md §4 / ADR-011): a entrega sai de um ESTOQUE MEXC pré-financiado,
 # desacoplado da entrada de DePix. Mundo 1 (este fluxo) é automatizado; reabastecer
@@ -12,17 +13,40 @@
 #
 # Disparo & falha (ADR-007): cada transição que move dinheiro roda como JOB
 # assíncrono idempotente na fila (BullMQ/Redis), commitado em UMA transação ACID
-# (ADR-004). Em falha: retry/backoff -> dead-letter -> estado de falha.
+# (ADR-004). O enfileiramento do PRÓXIMO job é gravado na MESMA transação (padrão
+# OUTBOX — ADR-013): nunca avança o estado sem agendar o job, nem dispara o job
+# sem ter persistido o estado. Em falha: retry/backoff -> dead-letter -> estado.
 #
-# Regra de falha:
-#   - ANTES do pagamento            -> EXPIRED (nada movido, sem refund).
-#   - DEPOIS do pagamento, sem estoque -> AWAITING_LIQUIDITY (retém; retoma ao
-#                                      reabastecer, ou reembolso). ADR-011.
-#   - DEPOIS do pagamento, erro de execução -> FAILED (dinheiro retido;
-#                                      reconciliação/refund).
+# Regra de falha (resumo — detalhe por transição em `on_failure`):
+#   - ANTES do pagamento               -> EXPIRED (nada movido, sem refund).
+#   - DEPOIS do pagamento, sem estoque  -> AWAITING_LIQUIDITY (auto-resume ao
+#                                          reabastecer, ou refund). ADR-011.
+#   - DEPOIS da compra, rede de saque suspensa -> WITHDRAW_BLOCKED (auto-resume
+#                                          quando a rede volta, ou refund).
+#   - QUALQUER falha de execução pós-pagamento que esgota retry / decisão ambígua
+#                                       -> MANUAL_REVIEW (dinheiro retido; humano
+#                                          decide: retomar, reembolsar ou baixar).
+#   Nenhum caso com dinheiro retido termina em silêncio: ou resolve (COMPLETED /
+#   REFUNDED) ou fica visível em MANUAL_REVIEW.
 #
-# Pré-cheque de liquidez (ADR-011): guard `liquidity_available` — só oferta/compra
-# se o estoque de saída (MEXC) tiver saldo na moeda+rede (+ margem).
+# Pré-cheque de liquidez (ADR-011 + ADR-014): o guard `liquidity_available` lê o
+# saldo DISPONÍVEL-PARA-PROMETER (saldo da MEXC menos o já reservado por quotes
+# aceitos em voo), não o saldo bruto — evita vender o mesmo estoque a vários
+# clientes (oversell). QUOTE_ACCEPTED RESERVA; EXPIRED/REFUNDED LIBERAM a reserva.
+#
+# Pré-cheque de rede (ADR-011): o guard `withdraw_network_enabled` confirma que a
+# moeda+rede pedida tem saque habilitado no catálogo da MEXC ANTES de cotar e de
+# novo antes de sacar — uma rede suspensa não pode prender cripto já comprada.
+#
+# Screening/compliance (ADR-012 — PROPOSTO): o guard `screening_passed` é um
+# SEAM reservado ANTES de gerar PIX. A POLÍTICA (quem faz o KYC, quais checagens)
+# está pendente de reunião (meetings/pauta-decisoes-pendentes.md); o seam existe
+# para que o gate não seja um retrofit na máquina depois. Hoje é no-op explícito.
+#
+# Pré-requisito do fluxo (não é estado de cash-in): a sub-conta do usuário
+# (ADR-002, `exchange.subaccount_create`, idempotente por user_ref) é criada no
+# ONBOARDING do usuário, ANTES do primeiro QUOTE. A máquina assume `subaccount_id`
+# existente.
 # =============================================================================
 
 version: 1
@@ -34,16 +58,17 @@ initial: QUOTE_CREATED
 # Estados canônicos. name é estável (UPPER_SNAKE) — NUNCA renomear sem ADR.
 #   type: normal | terminal_success | terminal_failure
 #   timeout_s / on_timeout: (opcional) prazo antes de uma transição automática
+#                           (valores são TODO — dependem das integrações)
 # ---------------------------------------------------------------------------
 states:
   - name: QUOTE_CREATED
     description: Cotação gerada (valor, cripto, taxa e preço travados por TTL); aguarda aceite.
     type: normal
-    timeout_s: TODO
+    timeout_s: TODO            # TTL do quote — curto (limita risco de preço; ver money-rules.md)
     on_timeout: EXPIRED
 
   - name: PIX_PENDING
-    description: Cobrança PIX criada na Eulen, QR emitido; aguarda pagamento.
+    description: Cobrança PIX criada na Eulen, QR emitido; aguarda pagamento. Reserva de liquidez ativa.
     type: normal
     timeout_s: TODO
     on_timeout: EXPIRED
@@ -53,7 +78,7 @@ states:
     type: normal
 
   - name: AWAITING_LIQUIDITY
-    description: Pago, mas o estoque de saída (MEXC) está insuficiente; aguarda reabastecimento (ADR-011).
+    description: Pago, mas o estoque de saída (MEXC) está insuficiente; aguarda reabastecimento (ADR-011). Auto-resume ou refund.
     type: normal
 
   - name: BUYING
@@ -61,32 +86,52 @@ states:
     type: normal
 
   - name: BOUGHT
-    description: Compra preenchida; cripto na sub-conta do usuário (ADR-002).
+    description: Compra preenchida dentro da tolerância; cripto na sub-conta do usuário (ADR-002).
+    type: normal
+
+  - name: WITHDRAW_BLOCKED
+    description: Comprado, mas a rede de saque está suspensa no provedor; cripto retida na sub-conta. Auto-resume quando a rede volta, ou refund.
     type: normal
 
   - name: WITHDRAWING
-    description: Saque on-chain disparado à MEXC.
+    description: Saque on-chain disparado à MEXC; aguarda confirmação. "Processing" é espera (não falha).
+    type: normal
+    timeout_s: TODO            # janela máxima antes de escalar saque travado p/ MANUAL_REVIEW
+    on_timeout: MANUAL_REVIEW
+
+  - name: MANUAL_REVIEW
+    description: Dinheiro retido e o fluxo automático não pode decidir (under-fill, dead-letter de job, saque travado). Operador resolve.
+    type: normal
+
+  - name: REFUNDING
+    description: Reembolso ao cliente em execução. No MVP a devolução do PIX é operacional/manual (ver runbook); confirmar devolução programática na Eulen (ADR-012/pauta).
     type: normal
 
   - name: COMPLETED
     description: Cripto na carteira do usuário; tx on-chain confirmada.
     type: terminal_success
 
+  - name: REFUNDED
+    description: Não houve entrega de cripto; valor devolvido ao cliente. Resolução limpa de um caso "pago, não entregue". Libera a reserva de liquidez.
+    type: terminal_failure
+
   - name: EXPIRED
-    description: PIX não pago no prazo — nenhum dinheiro movido (falha limpa, sem refund).
+    description: PIX não pago no prazo — nenhum dinheiro movido (falha limpa, sem refund). Libera a reserva de liquidez.
     type: terminal_failure
 
   - name: FAILED
-    description: Falha de execução após o pagamento — dinheiro retido; exige reconciliação/refund.
+    description: Baixa terminal após revisão — caso pós-pagamento irrecuperável e não reembolsável (write-off). Só alcançável a partir de MANUAL_REVIEW. Exige reconciliação.
     type: terminal_failure
 
 # ---------------------------------------------------------------------------
 # Transições permitidas (whitelist). Tudo que NÃO estiver aqui é proibido.
 #   from / to / event : origem, destino, gatilho (UPPER_SNAKE)
-#   guard             : condição determinística (ex.: liquidity_available — ADR-011)
+#   guard             : condição determinística (ADR-011/012/014)
 #   trigger           : como é disparada (ADR-007) — queue_job | webhook_inbound | timeout
 #   effect            : <port>.<method> do _capability-contract.yaml (ADR-006)
 #   on_failure        : retry -> dead_letter -> failure_state (ADR-007)
+#   idempotency_key   : chave natural por etapa (ADR-007). cash_in_id = id interno
+#                       do cash-in (1:1 com o quote). Sufixo isola a etapa.
 # ---------------------------------------------------------------------------
 transitions:
 
@@ -94,33 +139,33 @@ transitions:
   - from: QUOTE_CREATED
     to: PIX_PENDING
     event: QUOTE_ACCEPTED
-    guard: liquidity_available        # pré-cheque do estoque de saída (ADR-011)
+    guard: liquidity_available and withdraw_network_enabled and screening_passed  # pré-cheques (ADR-011/012/014); QUOTE_ACCEPTED reserva o estoque
     effect: on_ramp.create_pix_charge
     trigger:
       type: queue_job
       job: create_pix_charge
-      idempotency_key: TODO
+      idempotency_key: cash_in_id           # 1 cobrança por cash-in
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: EXPIRED
+      failure_state: EXPIRED                # nada movido ainda -> falha limpa; libera reserva
 
   - from: QUOTE_CREATED
     to: EXPIRED
     event: QUOTE_EXPIRED
-    trigger: { type: timeout }
+    trigger: { type: timeout }              # libera a reserva de liquidez (ADR-014)
 
   - from: PIX_PENDING
     to: PIX_PAID
     event: PIX_CONFIRMED
     trigger:
       type: webhook_inbound
-      idempotency_key: TODO
+      idempotency_key: charge_id            # webhook duplicado = no-op (ADR-008)
 
   - from: PIX_PENDING
     to: EXPIRED
     event: PIX_EXPIRED
-    trigger: { type: timeout }
+    trigger: { type: timeout }              # libera a reserva de liquidez (ADR-014)
 
   # --- Depois do pagamento: re-cheque de liquidez antes de comprar (ADR-011) ---
   - from: PIX_PAID
@@ -131,77 +176,159 @@ transitions:
     trigger:
       type: queue_job
       job: buy_spot
-      idempotency_key: TODO
+      idempotency_key: cash_in_id:buy       # 1 ordem por cash-in (evita compra dobrada)
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: FAILED           # erro de execução (não falta de estoque)
+      failure_state: MANUAL_REVIEW          # dinheiro retido -> humano decide (não termina sozinho)
 
   - from: PIX_PAID
     to: AWAITING_LIQUIDITY
-    event: LIQUIDITY_INSUFFICIENT     # estoque secou entre o pré-cheque e a execução
+    event: LIQUIDITY_INSUFFICIENT           # estoque secou entre o pré-cheque e a execução
     guard: not liquidity_available
 
   # --- Retenção por liquidez: retoma ao reabastecer, ou reembolsa (ADR-011) ---
   - from: AWAITING_LIQUIDITY
     to: BUYING
-    event: LIQUIDITY_RESTOCKED        # operador reabasteceu o estoque (Mundo 2)
+    event: LIQUIDITY_RESTOCKED              # operador reabasteceu o estoque (Mundo 2)
+    guard: liquidity_available
     effect: exchange.buy_spot
     trigger:
       type: queue_job
       job: buy_spot
-      idempotency_key: TODO
+      idempotency_key: cash_in_id:buy
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: FAILED
+      failure_state: MANUAL_REVIEW
 
   - from: AWAITING_LIQUIDITY
-    to: FAILED
-    event: REFUND_DECIDED             # decisão operacional de reembolsar/desistir
-    trigger: { type: queue_job, job: refund, idempotency_key: TODO }
+    to: REFUNDING
+    event: REFUND_DECIDED                    # decisão operacional de reembolsar/desistir
+    trigger: { type: queue_job, job: refund, idempotency_key: cash_in_id:refund }
 
-  # --- Compra -> saque -> entrega ---
+  # --- Compra -> (within tolerance) BOUGHT  |  (under tolerance) MANUAL_REVIEW ---
   - from: BUYING
     to: BOUGHT
-    event: FILL_COMPLETE              # inclui resolução de fill parcial (limit IOC ~10% — ADR-001)
+    event: FILL_COMPLETE                     # fill DENTRO da tolerância (limit IOC ~10% — ADR-001)
+    guard: fill_within_tolerance
     effect: exchange.get_order
     trigger:
       type: queue_job
       job: confirm_fill
-      idempotency_key: TODO
+      idempotency_key: order_id
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: FAILED
+      failure_state: MANUAL_REVIEW
 
+  - from: BUYING
+    to: MANUAL_REVIEW
+    event: FILL_UNDER_TOLERANCE              # preencheu abaixo do cotado além da tolerância (ADR-001/money-rules)
+    guard: not fill_within_tolerance         # operador decide: entregar parcial, recomprar resto, ou refund
+
+  # --- Compra -> saque: re-cheque de rede; suspensa prende a cripto (ADR-011) ---
   - from: BOUGHT
     to: WITHDRAWING
     event: WITHDRAW_STARTED
+    guard: withdraw_network_enabled
     effect: exchange.withdraw_onchain
     trigger:
       type: queue_job
       job: withdraw_onchain
-      idempotency_key: TODO
+      idempotency_key: cash_in_id:withdraw   # 1 saque por cash-in (evita saque dobrado)
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: FAILED
+      failure_state: MANUAL_REVIEW
 
+  - from: BOUGHT
+    to: WITHDRAW_BLOCKED
+    event: WITHDRAW_NETWORK_SUSPENDED        # rede suspensa na hora de sacar — cripto já comprada
+    guard: not withdraw_network_enabled
+
+  - from: WITHDRAW_BLOCKED
+    to: WITHDRAWING
+    event: NETWORK_RESUMED                   # rede de saque voltou a habilitar
+    guard: withdraw_network_enabled
+    effect: exchange.withdraw_onchain
+    trigger:
+      type: queue_job
+      job: withdraw_onchain
+      idempotency_key: cash_in_id:withdraw
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: MANUAL_REVIEW
+
+  - from: WITHDRAW_BLOCKED
+    to: REFUNDING
+    event: REFUND_DECIDED                    # cripto já comprada: o refund implica desfazer a posição (operacional — runbook)
+    trigger: { type: queue_job, job: refund, idempotency_key: cash_in_id:refund }
+
+  # --- Saque -> entrega. "processing" é espera; só escala se estourar o timeout ---
   - from: WITHDRAWING
     to: COMPLETED
     event: WITHDRAW_CONFIRMED
-    effect: exchange.get_withdrawal
+    effect: exchange.get_withdrawal          # job confirm_withdrawal re-checa status; "processing" -> re-agenda (não é falha)
     trigger:
       type: queue_job
       job: confirm_withdrawal
-      idempotency_key: TODO
+      idempotency_key: withdrawal_id
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: FAILED
+      failure_state: MANUAL_REVIEW           # saque travado/escalado — nunca FAILED automático (dinheiro on-chain)
+
+  # --- Revisão manual: operador retoma, reembolsa ou baixa (write-off) ---
+  - from: MANUAL_REVIEW
+    to: BUYING
+    event: REVIEW_RETRY_BUY                   # operador corrigiu a causa e manda recomprar
+    effect: exchange.buy_spot
+    trigger: { type: queue_job, job: buy_spot, idempotency_key: cash_in_id:buy }
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: MANUAL_REVIEW
+
+  - from: MANUAL_REVIEW
+    to: WITHDRAWING
+    event: REVIEW_RETRY_WITHDRAW              # operador corrigiu a causa e manda sacar
+    effect: exchange.withdraw_onchain
+    trigger: { type: queue_job, job: withdraw_onchain, idempotency_key: cash_in_id:withdraw }
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: MANUAL_REVIEW
+
+  - from: MANUAL_REVIEW
+    to: REFUNDING
+    event: REFUND_DECIDED
+    trigger: { type: queue_job, job: refund, idempotency_key: cash_in_id:refund }
+
+  - from: MANUAL_REVIEW
+    to: FAILED
+    event: WRITE_OFF                          # irrecuperável e não reembolsável — baixa com reconciliação
+    trigger: { type: queue_job, job: write_off, idempotency_key: cash_in_id:writeoff }
+
+  # --- Refund -> resolvido (libera reserva de liquidez) ---
+  - from: REFUNDING
+    to: REFUNDED
+    event: REFUND_COMPLETED
+    effect: on_ramp.refund_pix                # MVP: devolução operacional/manual; programática = TODO (ADR-012/pauta)
+    trigger:
+      type: queue_job
+      job: refund
+      idempotency_key: cash_in_id:refund
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: MANUAL_REVIEW
 
 # ---------------------------------------------------------------------------
 # Os efeitos estão declarados INLINE acima (campo `effect`). Sem agente no MVP
-# (princípio 3 / ADR-003): tudo determinístico.
+# (princípio 3 / ADR-003): tudo determinístico. Os eventos de confirmação
+# (FILL_COMPLETE/FILL_UNDER_TOLERANCE, WITHDRAW_CONFIRMED) são emitidos por um
+# MONITOR que escuta o WebSocket privado da MEXC (PrivateOrders/Deals/Account) e
+# os traduz em eventos de domínio; polling é fallback (Lunium.md §7).
 # ---------------------------------------------------------------------------

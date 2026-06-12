@@ -32,20 +32,41 @@ número ainda serão definidos.
 > TODO: definir modelo e valor. A taxa deve ser **embutida no preço da cotação**
 > (transparente no Quote), não cobrada à parte.
 
+## Representação monetária (tipo)
+
+**Decidido:** todo valor monetário (BRL, USDT, cripto) é representado como
+**decimal exato** — biblioteca de decimal ou inteiro em **unidades mínimas**
+(satoshis, centavos, menor unidade do ativo). **Nunca** o `number` (float) do
+JavaScript em valor de dinheiro: float introduz erro de arredondamento
+inaceitável num sistema que move fundos. A serialização na API é **string**, não
+número. Conversões e arredondamentos são explícitos, na fronteira, com a precisão
+do ativo (abaixo).
+
 ## Arredondamento e precisão
 
 **Decidido:** a precisão (casas decimais) de cada ativo **segue o catálogo da
 MEXC** — o campo de precisão retornado por `exchange.get_catalog`
 (`/api/v3/capital/config/getall`). Não há precisão fixa no Lunium; é **por ativo**.
 
-> Direção: recomendado **truncar para baixo** na cripto entregue (nunca entregar
-> mais do que foi comprado; evita dust e saldo negativo). TODO: confirmar a direção.
+**Decidido:** arredondar **truncando para baixo** a cripto entregue — nunca
+entregar mais do que foi comprado (evita dust e saldo negativo na sub-conta). O
+markup absorve a sobra de truncamento.
 
 ## Fill parcial
 
-Tratado como **limit IOC com tolerância de ~10%** (ADR-001). A quantidade
-efetivamente entregue é a `filled_qty` da ordem (transição `BUYING → BOUGHT`),
-dentro da tolerância.
+Tratado como **limit IOC com tolerância de ~10%** (ADR-001).
 
-> TODO: formalizar o tratamento quando o fill fica abaixo do cotado mas dentro da
-> tolerância (ajuste da quantidade entregue vs. preço cobrado).
+- **Dentro da tolerância** (`fill_within_tolerance`): a quantidade entregue é a
+  `filled_qty` da ordem; transição `BUYING → BOUGHT`. O cliente recebe o
+  efetivamente comprado (truncado para baixo); a diferença de preço/quantidade
+  dentro da tolerância é absorvida pelo markup.
+- **Abaixo da tolerância** (`not fill_within_tolerance`): transição
+  `BUYING → MANUAL_REVIEW` (`domain/state-machine.yaml`). O dinheiro está retido
+  e o operador decide: **entregar o parcial** (segue para `WITHDRAWING` com a
+  quantidade ajustada), **recomprar o restante** (a preço novo — risco do
+  operador) ou **reembolsar** (`REFUNDING`). Não há entrega silenciosa de valor
+  divergente do cotado.
+
+> TODO (parametrizar): o **valor exato da tolerância** (~10% é o teto do ADR-001)
+> e a regra default de MANUAL_REVIEW por under-fill — depende do apetite de risco
+> (ver pauta). O mecanismo já está na máquina; falta só o número/política.

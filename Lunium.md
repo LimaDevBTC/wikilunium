@@ -70,7 +70,10 @@ wikilunium/
 │   ├── ADR-008-testing-strategy.md        # testes = pré-condição de merge
 │   ├── ADR-009-runtime-nestjs.md          # runtime: TypeScript/Node + NestJS
 │   ├── ADR-010-access-layers-channels.md  # camadas de acesso + bot operador
-│   └── ADR-011-liquidity-model.md         # dois mundos: World 1 auto, World 2 manual
+│   ├── ADR-011-liquidity-model.md         # dois mundos: World 1 auto, World 2 manual
+│   ├── ADR-012-compliance-kyc-aml.md      # PROPOSTO: gate de screening (política pendente)
+│   ├── ADR-013-transactional-outbox.md    # consistência fila↔banco (anti dual-write)
+│   └── ADR-014-liquidity-reservation.md   # reserva anti-oversell (available-to-promise)
 ├── domain/
 │   ├── liquidity-model.md     # os dois mundos — define o escopo do MVP
 │   ├── state-machine.yaml     # estados canônicos (máquina) — fonte única
@@ -178,6 +181,14 @@ código v1 é uma fatia fina e determinística.
 - **ADR-011 — Modelo de liquidez (dois mundos).** Mundo 1 (entrega) automatizado
   pelo lunium-api via MEXC; Mundo 2 (reabastecer o estoque) manual no MVP, só
   observado. Pré-cheque de liquidez antes de cotar; reconciliação de dois eixos.
+- **ADR-012 — Compliance/KYC-AML (PROPOSTO).** Reserva o gate de screening na
+  máquina (`screening_passed`, hoje no-op); a **política** (quem faz KYC, VASP,
+  PLD/COAF, travel-rule) é pendente de reunião e **bloqueia o go-live**.
+- **ADR-013 — Outbox transacional.** O próximo job é gravado na mesma transação
+  ACID da transição; elimina ordem travada / job fantasma do dual-write fila↔banco.
+- **ADR-014 — Reserva de liquidez (anti-oversell).** O pré-cheque usa o
+  disponível-para-prometer (saldo − reservado − margem), não o saldo bruto; evita
+  vender o mesmo estoque a vários clientes. Parâmetros pendentes de reunião.
 
 -----
 

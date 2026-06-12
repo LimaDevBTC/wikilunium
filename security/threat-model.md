@@ -10,6 +10,8 @@
 - **Fundos em trânsito** (fiat recebido, cripto comprada, saque on-chain).
 - **Dados do usuário** (carteira de destino, valores, identidade do pedido).
 - **Integridade do estado** (a máquina de estados não pode pular nem duplicar etapas).
+- **Conformidade regulatória** (KYC/AML/PLD) — mover PIX→cripto p/ terceiros expõe
+  a obrigações; tratar como ativo a proteger, não detalhe. Ver ADR-012 / pauta.
 
 ## Superfícies de ataque
 - **API headless** exposta ao front (comprecripto-app).
@@ -26,10 +28,17 @@
   cada transição numa transação ACID (ADR-004).
 - **Comingling de fundos** → sub-conta por usuário (ADR-002): segregação nativa e
   depósito identificável.
-- **Saque para endereço/rede errada ou suspensa** → validação contra o catálogo
-  (`failure_modes` do port `exchange`); falha cai em `FAILED` + reconciliação.
-- **Falha após o pagamento (dinheiro retido)** → estado `FAILED` isolado +
-  [`../runbooks/reconciliation.md`](../runbooks/reconciliation.md); dinheiro nunca "some" em silêncio.
+- **Saque para rede errada ou suspensa** → pré-cheque `withdraw_network_enabled`
+  contra o catálogo; se a rede cai após a compra, vai para `WITHDRAW_BLOCKED`
+  (cripto retida, auto-resume ou refund) — não fica preso em falha sem saída.
+- **Saque para endereço sancionado / travel-rule (AML)** → screening do endereço
+  de saída antes de sacar; gate de compliance reservado (ADR-012). **Política
+  pendente** — risco aberto até a reunião; é o ponto cego nº 1.
+- **Falha após o pagamento (dinheiro retido)** → estados de retenção explícitos
+  (`AWAITING_LIQUIDITY`/`WITHDRAW_BLOCKED`/`MANUAL_REVIEW`) + outbox (ADR-013) +
+  [`../runbooks/reconciliation.md`](../runbooks/reconciliation.md); dinheiro nunca "some" em silêncio. `FAILED` só por write-off revisado.
+- **Oversell de estoque (vender o mesmo saldo 2x)** → reserva de liquidez /
+  available-to-promise (ADR-014), não saldo bruto.
 - **Movimento de dinheiro por engano** → execução 100% determinística; nenhum
   agente move fundos (ADR-003).
 

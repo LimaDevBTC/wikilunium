@@ -46,15 +46,40 @@
   [`state-machine.yaml`](state-machine.yaml).
 - **Idempotência** — garantia de que repetir uma operação (ex.: webhook
   duplicado, retry de job) não causa efeito duplicado. Chave por etapa. Ver ADR-007.
+- **Outbox (transacional)** — o próximo job é gravado no Postgres na **mesma
+  transação** da transição e publicado depois por um relay; evita estado avançado
+  sem job (travado) ou job sem estado (fantasma). Ver ADR-013.
 - **Dead-letter (DLQ)** — destino de um job que esgotou os retries; isola a falha
   para inspeção. Ver ADR-007.
+- **Reaper** — vigia que detecta operações paradas além do prazo num estado e as
+  escala (alerta + `MANUAL_REVIEW`). Ver `roadmap.md` Fase 3.
+
+## Estados do cash-in (canônicos — `state-machine.yaml`)
+
+- **AWAITING_LIQUIDITY** — pago, mas o estoque de saída (MEXC) está insuficiente;
+  auto-resume ao reabastecer ou segue p/ refund. Ver ADR-011.
+- **WITHDRAW_BLOCKED** — comprado, mas a rede de saque está suspensa; cripto retida.
+  Auto-resume quando a rede volta, ou refund.
+- **MANUAL_REVIEW** — dinheiro retido e o fluxo automático não decide (under-fill,
+  dead-letter, saque travado); operador resolve (retomar/reembolsar/baixar).
+- **REFUNDING → REFUNDED** — reembolso ao cliente em execução e concluído (caso
+  "pago, não entregue" resolvido devolvendo o valor). MVP: devolução manual.
 - **EXPIRED** — falha **antes** do pagamento: nenhum dinheiro movido, sem refund.
-- **FAILED** — falha **depois** do pagamento: dinheiro retido, exige
-  reconciliação/refund. Ver [`../runbooks/reconciliation.md`](../runbooks/reconciliation.md).
+- **FAILED** — **baixa terminal (write-off)** de um caso pós-pagamento
+  irrecuperável e não reembolsável; só a partir de `MANUAL_REVIEW`. Exige
+  reconciliação. Ver [`../runbooks/reconciliation.md`](../runbooks/reconciliation.md).
 
 ## Operação
 
 - **Reconciliação** — conferência entre fiat (Eulen), ordens/saldos (MEXC) e
   saques on-chain. Base do dashboard do MVP (§4).
+- **Reserva de liquidez (available-to-promise)** — disponível-para-prometer =
+  saldo do estoque de saída − reservado em voo − margem; o pré-cheque usa isso
+  (não o saldo bruto) para evitar oversell. Ver ADR-014.
+- **Screening** — checagem de compliance do cliente/operação (KYC, sanções/PEP,
+  monitoramento) antes de gerar PIX. Seam reservado na máquina (`screening_passed`);
+  política pendente. Ver ADR-012.
 - **KYB (Know Your Business)** — verificação institucional da conta na exchange.
   Trava 1 conta por CNPJ; não converte PF→PJ depois. Ver §6.
+- **KYC (Know Your Customer)** — verificação do usuário final. Quem o executa
+  (Lunium ou cliente B2B) é questão aberta. Ver ADR-012 / pauta.

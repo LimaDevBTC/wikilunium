@@ -65,10 +65,13 @@ conseguimos cumprir.
 Mitigações obrigatórias (entram na `state-machine.yaml` e em `security/`):
 
 1. **Pré-cheque de saldo ANTES de cotar/aceitar.** Consultar saldo da MEXC na
-   moeda+rede pedidas. Sem saldo suficiente (+ margem de segurança) → não
-   oferecer / não gerar PIX.
-2. **Estado de falha explícito "pago mas não entregue"** (`liquidity_failed`).
-   Retry quando reabastecer, ou reembolso ao cliente. Dinheiro do cliente nunca
+   moeda+rede pedidas, contra o **disponível-para-prometer** (saldo − reservado em
+   voo − margem), não o saldo bruto — senão, sob concorrência, vende-se o mesmo
+   estoque a vários clientes (oversell). Mecanismo de reserva: **ADR-014**. Sem
+   disponível suficiente → não oferecer / não gerar PIX.
+2. **Estado explícito "pago mas não entregue"** (`AWAITING_LIQUIDITY` na
+   `state-machine.yaml`). Auto-resume quando reabastecer (`LIQUIDITY_RESTOCKED`),
+   ou reembolso ao cliente (`REFUNDING → REFUNDED`). Dinheiro do cliente nunca
    fica em limbo silencioso.
 3. **Alerta de estoque baixo no dashboard** para o operador reabastecer ANTES de
    secar. Ele não pode descobrir que acabou quando um cliente já pagou.

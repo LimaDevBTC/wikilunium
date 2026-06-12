@@ -10,20 +10,36 @@
 
 ## Contexto
 
-&lt;TODO: a preencher a partir da ata e da análise de custos.&gt;
+A compra de cripto na MEXC pode sair por duas rotas: **Convert** (conversão
+direta, com spread embutido pelo provedor) ou **ordem spot** no livro (par contra
+USDT). O ambiente anterior usava Convert e pagava o **spread opaco** embutido no
+preço. Dois fatos fecham a decisão: (1) a **MEXC não expõe Convert na API** —
+automatizar por Convert seria inviável; (2) o custo de spot é **transparente e
+menor**: maker 0% / taker 0,05% contra um spread de Convert que não controlamos
+nem medimos. Como movemos dinheiro de cliente, precisamos da rota mais barata,
+**controlável e auditável** — e tratável em fill parcial.
 
 ## Decisão
 
-A MEXC **não expõe Convert na API**. A compra é feita via **ordem spot** no par
-contra USDT — mais barata (maker 0% / taker 0,05%) que o spread do Convert usado
-hoje. O **fill parcial** é tratado: a ordem "market" é modelada como **limit IOC**
-com tolerância de ~10%.
+A compra é feita via **ordem spot** no par contra USDT. O **fill parcial** é
+tratado: a ordem "market" é modelada como **limit IOC** com tolerância de ~10%
+(o IOC executa o que houver na hora e cancela o resto, limitando o slippage).
 
 ## Consequências
 
-&lt;TODO: implica client spot tipado, tratamento de fill parcial, cálculo de
-preço/slippage. Detalhar.&gt;
+- Implica um **client spot tipado próprio** (a demo MEXC não serve em produção —
+  Lunium.md §7), com assinatura HMAC e tratamento de erro/retry.
+- **Tratamento de fill parcial** entra na máquina de estados: dentro da tolerância
+  `BUYING → BOUGHT`; abaixo da tolerância `BUYING → MANUAL_REVIEW` (operador
+  decide) — ver `domain/state-machine.yaml` e `domain/money-rules.md`.
+- Exige **cálculo de preço/slippage** e validação de notional mínimo do par contra
+  o catálogo (`exchange.get_catalog`).
+- O risco de preço entre o quote e o fill fica com o operador durante o TTL do
+  quote — TTL curto + markup cobrem isso (ver `money-rules.md` / pauta).
 
 ## Alternativas consideradas
 
-&lt;TODO: Convert (descartado por custo/indisponibilidade na API). Detalhar.&gt;
+- **Convert** — descartado: indisponível na API (mata a automação) e com spread
+  mais caro e opaco que o spot.
+- **Market order puro** — descartado: sem controle de slippage em livro fino;
+  por isso a "market" é modelada como **limit IOC** com tolerância explícita.

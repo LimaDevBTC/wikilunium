@@ -19,8 +19,14 @@ sequência e dependências; estimar com o time.
 
 ## Faixa B — Burocracia (começa JÁ, em paralelo — não é código, §6)
 Bloqueia fases adiante; rodar desde o dia 1.
+- [ ] **DECISÃO DA ENTIDADE (CNPJ) — pré-condição do KYB.** Irreversível (1 conta
+  por CNPJ; não converte PF→PJ). Está parada na pauta de reunião — é o gargalo do
+  **caminho crítico real** (a Fase 3 depende dela e a aprovação do KYB não está sob
+  nosso controle). Resolver ANTES de tudo. Ver [`meetings/pauta-decisoes-pendentes.md`](meetings/pauta-decisoes-pendentes.md).
+- [ ] **Postura de compliance/KYC-AML (ADR-012)** — quem faz o KYC, registro VASP,
+  PLD/COAF. Bloqueia o go-live (Fase 3 com dinheiro real). Pauta + assessoria.
 - [ ] Conta **Eulen** empresarial nova (credenciais, webhook, limites). → desbloqueia spec/adapter Eulen.
-- [ ] Conta **MEXC** institucional (KYB no CNPJ certo, **withdraw habilitado**, sub-contas). → desbloqueia compra/saque reais. Ver [`runbooks/onboarding-mexc-broker.md`](runbooks/onboarding-mexc-broker.md).
+- [ ] Conta **MEXC** institucional (KYB no CNPJ certo, **withdraw habilitado**, sub-contas). → desbloqueia compra/saque reais. Ver [`runbooks/onboarding-mexc-broker.md`](runbooks/onboarding-mexc-broker.md). **Verificar antes:** sub-contas virtuais suportam depósito/saque independentes e o ToS permite fundos de terceiros (ADR-002).
 - [ ] Domínio + repos + chaves novas. **Zero reaproveitamento do ambiente antigo.**
 
 ---
@@ -32,13 +38,14 @@ Bloqueia fases adiante; rodar desde o dia 1.
 **Depende de:** parcialmente da Faixa B (specs de provedor precisam das contas).
 **Entregáveis:**
 - [x] ADR-009 — runtime/framework (TypeScript/Node + NestJS).
-- [ ] [`domain/state-machine.yaml`](domain/state-machine.yaml) — estados canônicos, transições, `failure_state`, `idempotency_key` por etapa.
-- [ ] [`providers/_capability-contract.yaml`](providers/_capability-contract.yaml) — assinaturas (inputs/outputs), `failure_modes`, `limits` por port.
+- [x] ADR-012 (compliance — **Proposto**, seam reservado) · ADR-013 (outbox) · ADR-014 (reserva de liquidez).
+- [~] [`domain/state-machine.yaml`](domain/state-machine.yaml) — estados (incl. exceção: `AWAITING_LIQUIDITY`, `WITHDRAW_BLOCKED`, `MANUAL_REVIEW`, `REFUNDING/REFUNDED`), transições, `failure_state` e **`idempotency_key` por etapa DEFINIDOS**; faltam só **valores** (timeouts/retries — Faixa B).
+- [~] [`providers/_capability-contract.yaml`](providers/_capability-contract.yaml) — assinaturas, `failure_modes`, `cross_cutting` (idempotência/outbox/retry) **definidos**; **números** de `limits`/`rate_limits` dependem das contas (Faixa B).
 - [ ] [`providers/mexc.md`](providers/mexc.md) — endpoints reais, auth HMAC, limites, redes de saque (extrair da demo MEXC, §7).
-- [ ] [`providers/eulen.md`](providers/eulen.md) — endpoints, webhook, limites (da conta nova).
-- [~] [`domain/money-rules.md`](domain/money-rules.md) — arredondamento **decidido** (precisão por ativo da MEXC); **ticket mínimo e taxa dependem das integrações** (Faixa B).
+- [ ] [`providers/eulen.md`](providers/eulen.md) — endpoints, webhook, limites, **devolução de PIX** (`refund_pix`?) (da conta nova).
+- [~] [`domain/money-rules.md`](domain/money-rules.md) — **decidido:** tipo monetário (decimal/bigint, nunca float), precisão por ativo (catálogo MEXC), truncar p/ baixo, tratamento de under-fill; **ticket mínimo e taxa dependem das integrações/negócio** (Faixa B + pauta).
 
-**Pronto quando:** `state-machine.yaml` e `_capability-contract.yaml` sem TODO crítico; specs de provedor com endpoints/limites confirmados.
+**Pronto quando:** `state-machine.yaml` e `_capability-contract.yaml` sem TODO **crítico** (os TODO restantes são valores operacionais da Faixa B, não estrutura); specs de provedor com endpoints/limites confirmados.
 
 ### Fase 1 — Scaffold da lunium-api (esqueleto DDD)
 **Objetivo:** repositório de código vivo, vazio mas com a arquitetura certa.
@@ -67,11 +74,13 @@ Bloqueia fases adiante; rodar desde o dia 1.
 **Objetivo:** o fluxo ponta a ponta, determinístico e recuperável.
 **Depende de:** Fase 2 + MEXC com **withdraw habilitado** (Faixa B).
 **Entregáveis:**
-- [ ] Máquina de estados de domínio implementando [`state-machine.yaml`](domain/state-machine.yaml).
-- [ ] Cada transição = **job BullMQ idempotente**, **1 transação ACID** (ADR-004/007), com retry/backoff, dead-letter e `failure_state`.
+- [ ] Máquina de estados de domínio implementando [`state-machine.yaml`](domain/state-machine.yaml), **incl. caminhos de exceção** (`AWAITING_LIQUIDITY`, `WITHDRAW_BLOCKED`, `MANUAL_REVIEW`, `REFUNDING/REFUNDED`).
+- [ ] Cada transição = **job BullMQ idempotente**, **1 transação ACID** (ADR-004/007), com **outbox** (ADR-013), retry/backoff, dead-letter e `failure_state`.
+- [ ] **Reserva de liquidez** (ADR-014) ligada ao guard `liquidity_available`.
+- [ ] **Reaper / monitor de estados travados** — detecta e alerta `PIX_PAID`/`WITHDRAWING` parados além do prazo e escala p/ `MANUAL_REVIEW`; alimenta [`runbooks/incident-stuck-order.md`](runbooks/incident-stuck-order.md). É infra de dinheiro, **não** polimento de fase posterior.
 - [ ] Fluxo E2E: Quote → PIX QR Eulen → webhook → `buy_spot` MEXC → `withdraw` on-chain → carteira (sandbox/testnet).
 
-**Pronto quando:** cash-in determinístico E2E verde em ambiente de teste; idempotência e recuperação de falha comprovadas.
+**Pronto quando:** cash-in determinístico E2E verde em ambiente de teste; idempotência, **outbox** e recuperação de falha (incl. caminhos de exceção) comprovadas.
 
 ### Fase 4 — Reconciliação + visibilidade do operador
 **Objetivo:** fechar o MVP (§4) e dar ao Guilherme visão da operação (ADR-010).
@@ -94,6 +103,16 @@ Bloqueia fases adiante; rodar desde o dia 1.
 - [ ] **Security review** aprovado (pré-condição de merge — princípio 4).
 
 **Pronto quando:** security review passa; runbooks operacionais completos; checklist de go-live fechado.
+
+### Gate de go-live — canário com dinheiro real (limites duros)
+**Objetivo:** primeira transação real sem expor capital/clientes a um bug de fluxo.
+**Depende de:** Fase 5 + compliance definido (ADR-012) + KYB com withdraw (Faixa B).
+**Entregáveis:**
+- [ ] **Allowlist** de usuários (só o time no começo) e **ticket mínimo/baixo**.
+- [ ] **Limite diário duro** de volume e de nº de operações; circuit-breaker manual.
+- [ ] Período de **shadow/canário** observado (reconciliação de dois eixos batendo 100%) antes de abrir ao público.
+
+**Pronto quando:** N operações reais pequenas concluídas e reconciliadas sem divergência; limites prontos para subir gradualmente.
 
 ---
 

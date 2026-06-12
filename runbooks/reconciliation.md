@@ -26,4 +26,8 @@ reconciliação confere cada eixo e a saúde de cada estoque.
   não pode descobrir que acabou quando o cliente já pagou).
 
 ## Divergências e tratamento
-- TODO. Atenção especial ao estado de retenção por liquidez ("pago, não entregue").
+- TODO. Atenção especial aos estados de retenção (dinheiro do cliente parado):
+  `AWAITING_LIQUIDITY`, `WITHDRAW_BLOCKED` e `MANUAL_REVIEW`. Cada um precisa de
+  resolução explícita (retomar / `REFUNDING→REFUNDED` / `WRITE_OFF→FAILED`) — nada
+  pode ficar pendente sem dono. Conferir também que cada `REFUNDED` **liberou** a
+  reserva de liquidez (ADR-014).

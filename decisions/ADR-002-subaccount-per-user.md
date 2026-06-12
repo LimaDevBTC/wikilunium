@@ -26,9 +26,23 @@ Evita comingling e garante depósito identificável desde o início.
 
 ## Consequências
 
-&lt;TODO: implica gestão de sub-contas, mapeamento usuário↔sub-conta, caminho de
-migração para Broker. Detalhar.&gt;
+- Implica **gestão de sub-contas** e um **mapeamento usuário↔sub-conta**
+  persistido; `exchange.subaccount_create` é idempotente por `user_ref` e roda no
+  **onboarding do usuário, antes do primeiro QUOTE** (a máquina de estados assume
+  `subaccount_id` existente).
+- **Reconciliação por sub-conta** (`exchange.subaccount_balance`), alinhada à
+  reconciliação de dois eixos (ADR-011).
+- **Caminho de migração para o Broker Program** quando aprovado — o port
+  `exchange` não muda; troca-se o adapter/credencial.
+- **Risco a verificar (Faixa B / pauta):** confirmar que sub-contas **virtuais**
+  na API normal da MEXC suportam, no tier institucional e sem o Broker, depósito
+  e saque independentes por sub-conta — e que o ToS permite segregar fundos de
+  terceiros. É uma premissa load-bearing deste ADR.
 
 ## Alternativas consideradas
 
-&lt;TODO: conta única com memo/tag (descartada). Detalhar.&gt;
+- **Conta única com memo/tag por depósito** — descartada: não segrega fundos
+  (comingling), reconciliação e auditoria viram um pesadelo e some a fronteira
+  por usuário.
+- **Uma conta MEXC por usuário (não sub-conta)** — descartada: inviável
+  operacionalmente (KYB por conta) e não escala.

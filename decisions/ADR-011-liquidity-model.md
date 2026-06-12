@@ -29,13 +29,15 @@ que isso cria. Detalhe completo em `domain/liquidity-model.md`.
   reabastecer o estoque de saída. O `lunium-api` **apenas observa** o saldo
   resultante. Automatizar isso é fase 2.
 
-**Pré-cheque de liquidez:** só cota/aceita/gera PIX se houver saldo no estoque de
-saída (MEXC) na moeda+rede pedidas (+ margem). Sem saldo → não oferece.
+**Pré-cheque de liquidez:** só cota/aceita/gera PIX se houver **disponível-para-
+prometer** no estoque de saída (MEXC) na moeda+rede pedidas (+ margem). A reserva
+que evita oversell sob concorrência é o **ADR-014**. Sem disponível → não oferece.
 
 **Falha de liquidez ("pago, não entregue"):** se, apesar do pré-cheque, faltar
-estoque na hora de entregar, há um estado explícito de retenção — retry quando
-reabastecer, ou reembolso. Dinheiro do cliente nunca em limbo silencioso.
-(Modelagem exata do estado: `domain/state-machine.yaml`.)
+estoque na hora de entregar, há um estado explícito de retenção
+(`AWAITING_LIQUIDITY`) — auto-resume ao reabastecer (`LIQUIDITY_RESTOCKED`), ou
+reembolso (`REFUNDING → REFUNDED`). Dinheiro do cliente nunca em limbo silencioso.
+(Modelagem exata dos estados: `domain/state-machine.yaml`.)
 
 **Reconciliação de dois eixos:** entrada (PIX/DePix — Eulen + Liquid) e saída
 (compra+saque — MEXC), com saúde de cada estoque e alerta de estoque baixo.

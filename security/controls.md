@@ -16,12 +16,25 @@
 - Chave de idempotência por etapa (ADR-007); cada transição numa transação ACID
   (ADR-004).
 
+## Idempotência e atomicidade (cont.)
+- Próximo job gravado na mesma transação da transição (**outbox** — ADR-013):
+  sem ordem travada nem job fantasma.
+- Pré-cheque sobre **disponível-para-prometer** (reserva — ADR-014), não saldo bruto.
+
+## Compliance / screening
+- **Gate de screening** reservado antes de gerar PIX (`screening_passed` — seam).
+  Política (KYC/AML/sanções, quem executa) **pendente** — ADR-012 / pauta. Quando
+  fechar, vira controle ativo (não no-op).
+
 ## Auditoria e logs
-- TODO: trilha de auditoria de cada transição de estado e de cada movimento de
-  dinheiro (quem/quando/quanto/resultado).
+- Trilha de auditoria **por transição de estado** e **por movimento de dinheiro**
+  (quem/quando/quanto/resultado), apoiada na máquina de estados + outbox.
+  <TODO: retenção e formato.>
 
 ## Confirmação explícita de movimento de dinheiro
-- Execução determinística; agente nunca move fundos (ADR-003).
+- Execução determinística; agente nunca move fundos (ADR-003). Ações do operador
+  que movem dinheiro (refund/retry/write-off em `MANUAL_REVIEW`) exigem auth forte
+  + confirmação + auditoria (ADR-010).
 
 ## Continuidade
 - Doutrina, decisões e runbooks vivem neste brain (princípio 5). Onboarding de um
