@@ -68,7 +68,8 @@ wikilunium/
 │   ├── ADR-006-ddd-ports-adapters.md      # arquitetura DDD + hexagonal
 │   ├── ADR-007-messaging-bullmq-redis.md  # cash-in assíncrono via fila
 │   ├── ADR-008-testing-strategy.md        # testes = pré-condição de merge
-│   └── ADR-009-runtime-nestjs.md          # runtime: TypeScript/Node + NestJS
+│   ├── ADR-009-runtime-nestjs.md          # runtime: TypeScript/Node + NestJS
+│   └── ADR-010-access-layers-channels.md  # camadas de acesso + bot operador
 ├── domain/
 │   ├── state-machine.yaml     # estados canônicos (máquina) — fonte única
 │   ├── glossary.md            # vocabulário do domínio (humano)
@@ -163,6 +164,10 @@ código v1 é uma fatia fina e determinística.
 - **ADR-009 — Runtime: TypeScript/Node + NestJS.** Node casa com BullMQ (ADR-007);
   NestJS dá módulos/DI que mapeiam para ports & adapters (ADR-006). TS tipa o
   domínio ponta a ponta.
+- **ADR-010 — Camadas de acesso e canais.** Três camadas (usuário/operador/
+  suporte); brain só alimenta agente interno (externos usam KB curada). Operador
+  (Guilherme) ganha bot determinístico de visibilidade (Telegram); versão agêntica
+  é fase 2. Bot = mais um cliente da api headless.
 
 -----
 

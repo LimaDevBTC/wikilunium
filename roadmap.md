@@ -73,14 +73,16 @@ Bloqueia fases adiante; rodar desde o dia 1.
 
 **Pronto quando:** cash-in determinístico E2E verde em ambiente de teste; idempotência e recuperação de falha comprovadas.
 
-### Fase 4 — Reconciliação + dashboard
-**Objetivo:** fechar o MVP (§4).
+### Fase 4 — Reconciliação + visibilidade do operador
+**Objetivo:** fechar o MVP (§4) e dar ao Guilherme visão da operação (ADR-010).
 **Depende de:** Fase 3.
 **Entregáveis:**
 - [ ] Reconciliação Eulen ↔ MEXC ↔ on-chain — preencher [`runbooks/reconciliation.md`](runbooks/reconciliation.md).
-- [ ] **Dashboard de reconciliação**, exposto headless para o front consumir.
+- [ ] **Dashboard de reconciliação**, exposto headless.
+- [ ] **Endpoints de operador/admin** + **stream de eventos** (transições de estado) na lunium-api (ADR-010).
+- [ ] **Bot operador (Telegram), determinístico, read-mostly** — alertas (ex.: `FAILED`) + consultas. Cliente separado da api (ADR-010). *Versão thin (só alertas) pode chegar já na Fase 3, quando a máquina passa a emitir eventos.*
 
-**Pronto quando:** divergências detectáveis e auditáveis; runbook de reconciliação completo.
+**Pronto quando:** divergências detectáveis e auditáveis; Guilherme recebe alertas e consulta a operação.
 
 ### Fase 5 — Hardening, segurança e continuidade (pré-produção)
 **Objetivo:** merge-ready e operável sem o autor original.
@@ -100,6 +102,10 @@ Paralelo a partir da Fase 2/3: estabilizar o **contrato da API headless** que o 
 
 ## Explicitamente FORA do MVP (não fazer agora)
 Camada agêntica (fase 2 — ADR-003), cash-out / SmartPay, múltiplos provedores simultâneos, troca automática de corretora, PIX próprio, moeda própria. A arquitetura já nasce plugável para isso (capabilities/ports), mas o código v1 é fatia fina.
+
+**Planos futuros registrados:**
+- **Canal de venda no Telegram** — bot transacional próprio e, como **produto-brinde B2B**, entregue pronto a parceiros/clientes Lunium rodarem sem ter app próprio. É só mais um cliente da api headless (ADR-005/010).
+- **Operador agêntico** — controle da operação por linguagem natural (evolução do bot operador determinístico da Fase 4), com os guard-rails do ADR-003.
 
 ## Como manter este plano
 Mudou escopo ou sequência? Atualize aqui **e** registre um ADR se for arquitetural. Marque as caixas conforme entrega; ao fechar uma fase, anote no [`CHANGELOG.md`](CHANGELOG.md).
