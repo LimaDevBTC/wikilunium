@@ -1,0 +1,24 @@
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Editores / IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Segredos — NUNCA commitar credenciais neste repo (é só brain, não roda nada)
+.env
+.env.*
+*.key
+*.pem
+*.p12
+secrets/
+*.secret
+*.local
+
+# Temporários
+*.tmp
+*.bak
+*.log

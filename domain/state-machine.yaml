@@ -1,0 +1,171 @@
+# =============================================================================
+# domain/state-machine.yaml
+# Máquina de estados CANÔNICA do cash-in determinístico — FONTE ÚNICA.
+#
+# Arquivo para MÁQUINA: parseado na geração de código e em runtime. Não é prosa.
+# STATUS: rascunho — revisar. (Estados/transições APROVADOS; faltam só valores
+# operacionais: timeouts, retries, chaves de idempotência.)
+#
+# Fluxo (Lunium.md §4): Quote -> PIX QR (Eulen) -> webhook pago -> spot buy (MEXC)
+#                       -> withdraw on-chain -> carteira do usuário
+#
+# Disparo & falha (ADR-007): cada transição que move dinheiro roda como JOB
+# assíncrono idempotente na fila (BullMQ/Redis), commitado em UMA transação ACID
+# (ADR-004). Em falha: retry/backoff -> dead-letter -> estado de falha.
+#
+# Regra de falha (aprovada): falha ANTES do pagamento -> EXPIRED (nada movido,
+# sem refund). Falha DEPOIS do pagamento -> FAILED (dinheiro retido; exige
+# reconciliação/refund — ver runbooks/reconciliation.md).
+# =============================================================================
+
+version: 1            # estados canônicos aprovados; renomear exige ADR
+flow: cash-in         # cash-in no MVP; cash-out = fase 2
+
+initial: QUOTE_CREATED
+
+# ---------------------------------------------------------------------------
+# Estados canônicos. name é estável (UPPER_SNAKE) — NUNCA renomear sem ADR.
+#   type: normal | terminal_success | terminal_failure
+#   timeout_s / on_timeout: (opcional) prazo antes de uma transição automática
+# ---------------------------------------------------------------------------
+states:
+  - name: QUOTE_CREATED
+    description: Cotação gerada (valor, cripto, taxa e preço travados por TTL); aguarda aceite.
+    type: normal
+    timeout_s: TODO          # TODO: por quanto tempo o preço fica travado?
+    on_timeout: EXPIRED
+
+  - name: PIX_PENDING
+    description: Cobrança PIX criada na Eulen, QR emitido; aguarda pagamento.
+    type: normal
+    timeout_s: TODO          # TODO: validade do QR PIX (confirmar com Eulen)
+    on_timeout: EXPIRED
+
+  - name: PIX_PAID
+    description: Webhook da Eulen confirmou o pagamento.
+    type: normal
+
+  - name: BUYING
+    description: Ordem spot enviada à MEXC; aguarda fill.
+    type: normal
+
+  - name: BOUGHT
+    description: Compra preenchida; cripto na sub-conta do usuário (ADR-002).
+    type: normal
+
+  - name: WITHDRAWING
+    description: Saque on-chain disparado à MEXC.
+    type: normal
+
+  - name: COMPLETED
+    description: Cripto na carteira do usuário; tx on-chain confirmada.
+    type: terminal_success
+
+  - name: EXPIRED
+    description: PIX não pago no prazo — nenhum dinheiro movido (falha limpa, sem refund).
+    type: terminal_failure
+
+  - name: FAILED
+    description: Falha após o pagamento (compra/saque) — dinheiro retido; exige reconciliação/refund.
+    type: terminal_failure
+
+# ---------------------------------------------------------------------------
+# Transições permitidas (whitelist). Tudo que NÃO estiver aqui é proibido.
+#   from / to / event : origem, destino, gatilho (UPPER_SNAKE)
+#   trigger           : como é disparada (ADR-007)
+#       type: queue_job | webhook_inbound | timeout
+#       job / idempotency_key: para queue_job
+#   effect            : <port>.<method> do _capability-contract.yaml (ADR-006)
+#   on_failure        : retry -> dead_letter -> failure_state (ADR-007)
+# ---------------------------------------------------------------------------
+transitions:
+
+  # --- Antes do pagamento: falha é "limpa" -> EXPIRED (nada movido) ---
+  - from: QUOTE_CREATED
+    to: PIX_PENDING
+    event: QUOTE_ACCEPTED
+    effect: on_ramp.create_pix_charge
+    trigger:
+      type: queue_job
+      job: create_pix_charge
+      idempotency_key: TODO          # TODO: ex.: quote_id (uma cobrança por cotação)
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: EXPIRED         # nada foi pago ainda
+
+  - from: QUOTE_CREATED
+    to: EXPIRED
+    event: QUOTE_EXPIRED
+    trigger: { type: timeout }       # TTL da cotação (timeout_s do estado)
+
+  - from: PIX_PENDING
+    to: PIX_PAID
+    event: PIX_CONFIRMED
+    trigger:
+      type: webhook_inbound          # webhook da Eulen
+      idempotency_key: TODO          # TODO: ex.: charge_id (webhook duplicado = no-op — ADR-008)
+
+  - from: PIX_PENDING
+    to: EXPIRED
+    event: PIX_EXPIRED
+    trigger: { type: timeout }       # validade do QR (timeout_s do estado)
+
+  # --- Depois do pagamento: falha retém dinheiro -> FAILED (reconciliação) ---
+  - from: PIX_PAID
+    to: BUYING
+    event: BUY_STARTED
+    effect: exchange.buy_spot
+    trigger:
+      type: queue_job
+      job: buy_spot
+      idempotency_key: TODO          # TODO: ex.: order_id interno
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: FAILED
+
+  - from: BUYING
+    to: BOUGHT
+    event: FILL_COMPLETE             # inclui resolução de fill parcial (limit IOC ~10% — ADR-001)
+    effect: exchange.get_order
+    trigger:
+      type: queue_job
+      job: confirm_fill
+      idempotency_key: TODO
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: FAILED
+
+  - from: BOUGHT
+    to: WITHDRAWING
+    event: WITHDRAW_STARTED
+    effect: exchange.withdraw_onchain
+    trigger:
+      type: queue_job
+      job: withdraw_onchain
+      idempotency_key: TODO          # TODO: ex.: withdrawal_id (evita saque dobrado)
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: FAILED
+
+  - from: WITHDRAWING
+    to: COMPLETED
+    event: WITHDRAW_CONFIRMED
+    effect: exchange.get_withdrawal
+    trigger:
+      type: queue_job                # disparado pelo monitor WebSocket privado; polling fallback
+      job: confirm_withdrawal
+      idempotency_key: TODO
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: FAILED
+
+# ---------------------------------------------------------------------------
+# Os efeitos (qual capability roda em cada transição) estão declarados INLINE
+# acima, no campo `effect` de cada transição — fonte única, sem duplicar.
+# Sem agente no MVP (princípio 3 / ADR-003): tudo determinístico.
+# ---------------------------------------------------------------------------

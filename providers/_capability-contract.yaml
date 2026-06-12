@@ -1,0 +1,141 @@
+# =============================================================================
+# providers/_capability-contract.yaml
+# CONTRATO DE CAPABILITY: as INTERFACES (ports) que todo provedor implementa.
+#
+# Arquivo para MÁQUINA: parseado na geração de código (gera as interfaces tipadas)
+# e em runtime (seleção/validação de provedor).
+# STATUS: rascunho — revisar. (Operações derivadas da state-machine; tipos exatos
+# e valores específicos de provedor ficam nos providers/<nome>.md.)
+#
+# PORTS & ADAPTERS (ADR-006): cada item de `ports` é uma INTERFACE; provedores
+# concretos são ADAPTERS que a implementam. Interface comum de todo port: nome,
+# operações (methods), modos de falha (failure_modes) e limites (limits). Trocar
+# de provedor = trocar o adapter, sem tocar no domínio (princípio 1).
+#
+# As operações abaixo são exatamente as chamadas pelos `effect` da
+# domain/state-machine.yaml. Idempotência por etapa = ADR-007.
+# =============================================================================
+
+version: 1
+
+# Adapters conhecidos (provider -> port). Detalhe real em providers/<nome>.md.
+adapters:
+  eulen:    { port: on_ramp,  status: mvp }      # providers/eulen.md
+  mexc:     { port: exchange, status: mvp }      # providers/mexc.md
+  smartpay: { port: off_ramp, status: fase_2 }   # providers/smartpay.md (fase 2)
+
+ports:
+
+  # ---------------------------------------------------------------------------
+  on_ramp:
+    description: Entrada de fiat via PIX (cria cobrança, confirma pagamento).
+    limits: TODO            # ex.: Eulen ~10 ops/min — TODO: confirmar com conta nova
+    methods:
+
+      create_pix_charge:
+        description: Cria cobrança PIX e retorna o QR / copia-e-cola.
+        inputs:
+          amount_brl: decimal        # valor em BRL
+          quote_id: string           # cotação que originou a cobrança
+        outputs:
+          charge_id: string          # id da cobrança no provedor
+          qr_code: string            # payload copia-e-cola (e/ou imagem)
+          expires_at: timestamp
+        failure_modes: [timeout, rejected, provider_unavailable]
+        idempotent: true             # chave: quote_id (ADR-007)
+
+      get_charge_status:
+        description: Consulta o status de uma cobrança (fallback do webhook).
+        inputs: { charge_id: string }
+        outputs: { status: enum, paid_at: timestamp }   # status: pending|paid|expired
+        failure_modes: [not_found, provider_unavailable]
+        idempotent: true
+
+      verify_webhook:
+        description: Verifica assinatura do webhook e normaliza o evento de pagamento.
+        inputs: { payload: bytes, signature: string }
+        outputs: { charge_id: string, status: enum, paid_amount_brl: decimal }
+        failure_modes: [signature_invalid, duplicate]   # duplicate = no-op idempotente (ADR-008)
+        idempotent: true             # chave: charge_id
+
+  # ---------------------------------------------------------------------------
+  exchange:
+    description: Catálogo, compra spot, saque on-chain e sub-contas.
+    limits: TODO            # TODO: rate limits, limites de saque por rede
+    methods:
+
+      get_catalog:
+        description: Catálogo dinâmico (min/max, taxa, redes por moeda).
+        inputs: {}                   # GET /api/v3/capital/config/getall (Lunium.md §7)
+        outputs:
+          assets: list               # [{ symbol, networks[], min, max, fee, precision }]
+        failure_modes: [provider_unavailable]
+        idempotent: true
+
+      buy_spot:
+        description: Ordem spot contra USDT (ADR-001). Market modelada como limit IOC ~10%.
+        inputs:
+          subaccount_id: string      # sub-conta do usuário (ADR-002)
+          symbol: string             # par negociável
+          quote_amount: decimal      # quanto gastar (em USDT)
+        outputs:
+          order_id: string
+          status: enum               # filled | partially_filled | rejected
+          filled_qty: decimal
+          avg_price: decimal
+          fee: decimal
+        failure_modes: [partial_fill, insufficient_balance, symbol_halted, provider_unavailable]
+        idempotent: true             # chave: order_id interno (ADR-007)
+
+      get_order:
+        description: Status de uma ordem (confirma fill, inclusive parcial — ADR-001).
+        inputs: { subaccount_id: string, order_id: string }
+        outputs: { status: enum, filled_qty: decimal, avg_price: decimal }
+        failure_modes: [not_found, provider_unavailable]
+        idempotent: true
+
+      withdraw_onchain:
+        description: Saque on-chain para a carteira do usuário.
+        inputs:
+          subaccount_id: string
+          asset: string
+          network: string            # rede precisa estar habilitada (ADR-008: rede suspensa)
+          address: string
+          amount: decimal
+        outputs:
+          withdrawal_id: string
+          status: enum               # requested | processing | completed | failed
+          tx_id: string
+        failure_modes: [network_suspended, address_invalid, insufficient_balance, provider_unavailable]
+        idempotent: true             # chave: withdrawal_id (evita saque dobrado)
+
+      get_withdrawal:
+        description: Status do saque (confirmação on-chain).
+        inputs: { withdrawal_id: string }
+        outputs: { status: enum, tx_id: string, confirmations: int }
+        failure_modes: [not_found, provider_unavailable]
+        idempotent: true
+
+      subaccount_create:
+        description: Cria sub-conta segregada por usuário (ADR-002).
+        inputs: { user_ref: string }
+        outputs: { subaccount_id: string }
+        failure_modes: [already_exists, provider_unavailable]
+        idempotent: true             # chave: user_ref
+
+      subaccount_balance:
+        description: Saldo de um ativo na sub-conta (reconciliação).
+        inputs: { subaccount_id: string, asset: string }
+        outputs: { available: decimal, locked: decimal }
+        failure_modes: [not_found, provider_unavailable]
+        idempotent: true
+
+# ---------------------------------------------------------------------------
+# Contratos transversais que TODO adapter respeita (a demo MEXC não os tem —
+# Lunium.md §7). Monitor em tempo real (MEXC): WebSocket privado, polling fallback.
+# ---------------------------------------------------------------------------
+cross_cutting:
+  idempotency: TODO          # chave de idempotência por etapa (ADR-007) — ver state-machine.yaml
+  retry: TODO                # retry/backoff/dead-letter via fila (ADR-007)
+  error_normalization: TODO  # erro do provedor -> failure_mode normalizado acima
+  rate_limits: TODO          # ex.: Eulen ~10 ops/min — TODO: confirmar com conta nova
