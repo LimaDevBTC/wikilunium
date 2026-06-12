@@ -22,3 +22,6 @@ secrets/
 *.tmp
 *.bak
 *.log
+
+# Artefatos gerados (PDF é renderizado do .md correspondente — não versionar)
+*.pdf
