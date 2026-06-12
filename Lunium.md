@@ -69,8 +69,10 @@ wikilunium/
 │   ├── ADR-007-messaging-bullmq-redis.md  # cash-in assíncrono via fila
 │   ├── ADR-008-testing-strategy.md        # testes = pré-condição de merge
 │   ├── ADR-009-runtime-nestjs.md          # runtime: TypeScript/Node + NestJS
-│   └── ADR-010-access-layers-channels.md  # camadas de acesso + bot operador
+│   ├── ADR-010-access-layers-channels.md  # camadas de acesso + bot operador
+│   └── ADR-011-liquidity-model.md         # dois mundos: World 1 auto, World 2 manual
 ├── domain/
+│   ├── liquidity-model.md     # os dois mundos — define o escopo do MVP
 │   ├── state-machine.yaml     # estados canônicos (máquina) — fonte única
 │   ├── glossary.md            # vocabulário do domínio (humano)
 │   └── money-rules.md         # ticket mínimo, taxa embutida, arredondamento
@@ -121,9 +123,14 @@ wikilunium/
 ## 4. Escopo do MVP (corte fino)
 
 **Entra:** cash-in determinístico ponta a ponta (Quote → PIX QR Eulen → webhook
-→ spot buy MEXC → withdraw on-chain → carteira do usuário), catálogo dinâmico da
-MEXC, dashboard de reconciliação. Exposto como API headless para o
-`comprecripto-app` consumir. Cliente principal: comprecripto.io.
+→ spot buy MEXC → withdraw on-chain → carteira do usuário), **pré-cheque de
+liquidez** antes de cotar, catálogo dinâmico da MEXC, **dashboard de reconciliação
+de dois eixos**. Exposto como API headless para o `comprecripto-app` consumir.
+Cliente principal: comprecripto.io.
+
+O operador atua como **provedor de liquidez**: a entrega sai de um **estoque MEXC
+pré-financiado**, desacoplado da entrada de DePix; reabastecer esse estoque é
+**manual** no MVP (Mundo 2). Ver `domain/liquidity-model.md` + ADR-011.
 
 **Fica para depois:** camada agêntica (chat texto/áudio), cash-out, múltiplos
 provedores simultâneos, troca automática de corretora, PIX próprio, moeda própria.
@@ -168,6 +175,9 @@ código v1 é uma fatia fina e determinística.
   suporte); brain só alimenta agente interno (externos usam KB curada). Operador
   (Guilherme) ganha bot determinístico de visibilidade (Telegram); versão agêntica
   é fase 2. Bot = mais um cliente da api headless.
+- **ADR-011 — Modelo de liquidez (dois mundos).** Mundo 1 (entrega) automatizado
+  pelo lunium-api via MEXC; Mundo 2 (reabastecer o estoque) manual no MVP, só
+  observado. Pré-cheque de liquidez antes de cotar; reconciliação de dois eixos.
 
 -----
 

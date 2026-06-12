@@ -3,23 +3,30 @@
 # Máquina de estados CANÔNICA do cash-in determinístico — FONTE ÚNICA.
 #
 # Arquivo para MÁQUINA: parseado na geração de código e em runtime. Não é prosa.
-# STATUS: rascunho — revisar. (Estados/transições APROVADOS; faltam só valores
-# operacionais: timeouts, retries, chaves de idempotência.)
+# STATUS: rascunho — revisar. (Estados/transições APROVADOS, incl. liquidez;
+# faltam só valores operacionais: timeouts, retries, chaves de idempotência.)
 #
-# Fluxo (Lunium.md §4): Quote -> PIX QR (Eulen) -> webhook pago -> spot buy (MEXC)
-#                       -> withdraw on-chain -> carteira do usuário
+# Fluxo (Lunium.md §4 / ADR-011): a entrega sai de um ESTOQUE MEXC pré-financiado,
+# desacoplado da entrada de DePix. Mundo 1 (este fluxo) é automatizado; reabastecer
+# o estoque (Mundo 2) é manual — ver domain/liquidity-model.md.
 #
 # Disparo & falha (ADR-007): cada transição que move dinheiro roda como JOB
 # assíncrono idempotente na fila (BullMQ/Redis), commitado em UMA transação ACID
 # (ADR-004). Em falha: retry/backoff -> dead-letter -> estado de falha.
 #
-# Regra de falha (aprovada): falha ANTES do pagamento -> EXPIRED (nada movido,
-# sem refund). Falha DEPOIS do pagamento -> FAILED (dinheiro retido; exige
-# reconciliação/refund — ver runbooks/reconciliation.md).
+# Regra de falha:
+#   - ANTES do pagamento            -> EXPIRED (nada movido, sem refund).
+#   - DEPOIS do pagamento, sem estoque -> AWAITING_LIQUIDITY (retém; retoma ao
+#                                      reabastecer, ou reembolso). ADR-011.
+#   - DEPOIS do pagamento, erro de execução -> FAILED (dinheiro retido;
+#                                      reconciliação/refund).
+#
+# Pré-cheque de liquidez (ADR-011): guard `liquidity_available` — só oferta/compra
+# se o estoque de saída (MEXC) tiver saldo na moeda+rede (+ margem).
 # =============================================================================
 
-version: 1            # estados canônicos aprovados; renomear exige ADR
-flow: cash-in         # cash-in no MVP; cash-out = fase 2
+version: 1
+flow: cash-in
 
 initial: QUOTE_CREATED
 
@@ -32,21 +39,25 @@ states:
   - name: QUOTE_CREATED
     description: Cotação gerada (valor, cripto, taxa e preço travados por TTL); aguarda aceite.
     type: normal
-    timeout_s: TODO          # TODO: por quanto tempo o preço fica travado?
+    timeout_s: TODO
     on_timeout: EXPIRED
 
   - name: PIX_PENDING
     description: Cobrança PIX criada na Eulen, QR emitido; aguarda pagamento.
     type: normal
-    timeout_s: TODO          # TODO: validade do QR PIX (confirmar com Eulen)
+    timeout_s: TODO
     on_timeout: EXPIRED
 
   - name: PIX_PAID
-    description: Webhook da Eulen confirmou o pagamento.
+    description: Webhook da Eulen confirmou o pagamento (DePix creditado na Liquid — estoque de entrada).
+    type: normal
+
+  - name: AWAITING_LIQUIDITY
+    description: Pago, mas o estoque de saída (MEXC) está insuficiente; aguarda reabastecimento (ADR-011).
     type: normal
 
   - name: BUYING
-    description: Ordem spot enviada à MEXC; aguarda fill.
+    description: Ordem spot enviada à MEXC (estoque de saída); aguarda fill.
     type: normal
 
   - name: BOUGHT
@@ -66,15 +77,14 @@ states:
     type: terminal_failure
 
   - name: FAILED
-    description: Falha após o pagamento (compra/saque) — dinheiro retido; exige reconciliação/refund.
+    description: Falha de execução após o pagamento — dinheiro retido; exige reconciliação/refund.
     type: terminal_failure
 
 # ---------------------------------------------------------------------------
 # Transições permitidas (whitelist). Tudo que NÃO estiver aqui é proibido.
 #   from / to / event : origem, destino, gatilho (UPPER_SNAKE)
-#   trigger           : como é disparada (ADR-007)
-#       type: queue_job | webhook_inbound | timeout
-#       job / idempotency_key: para queue_job
+#   guard             : condição determinística (ex.: liquidity_available — ADR-011)
+#   trigger           : como é disparada (ADR-007) — queue_job | webhook_inbound | timeout
 #   effect            : <port>.<method> do _capability-contract.yaml (ADR-006)
 #   on_failure        : retry -> dead_letter -> failure_state (ADR-007)
 # ---------------------------------------------------------------------------
@@ -84,50 +94,77 @@ transitions:
   - from: QUOTE_CREATED
     to: PIX_PENDING
     event: QUOTE_ACCEPTED
+    guard: liquidity_available        # pré-cheque do estoque de saída (ADR-011)
     effect: on_ramp.create_pix_charge
     trigger:
       type: queue_job
       job: create_pix_charge
-      idempotency_key: TODO          # TODO: ex.: quote_id (uma cobrança por cotação)
+      idempotency_key: TODO
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
-      failure_state: EXPIRED         # nada foi pago ainda
+      failure_state: EXPIRED
 
   - from: QUOTE_CREATED
     to: EXPIRED
     event: QUOTE_EXPIRED
-    trigger: { type: timeout }       # TTL da cotação (timeout_s do estado)
+    trigger: { type: timeout }
 
   - from: PIX_PENDING
     to: PIX_PAID
     event: PIX_CONFIRMED
     trigger:
-      type: webhook_inbound          # webhook da Eulen
-      idempotency_key: TODO          # TODO: ex.: charge_id (webhook duplicado = no-op — ADR-008)
+      type: webhook_inbound
+      idempotency_key: TODO
 
   - from: PIX_PENDING
     to: EXPIRED
     event: PIX_EXPIRED
-    trigger: { type: timeout }       # validade do QR (timeout_s do estado)
+    trigger: { type: timeout }
 
-  # --- Depois do pagamento: falha retém dinheiro -> FAILED (reconciliação) ---
+  # --- Depois do pagamento: re-cheque de liquidez antes de comprar (ADR-011) ---
   - from: PIX_PAID
     to: BUYING
     event: BUY_STARTED
+    guard: liquidity_available
     effect: exchange.buy_spot
     trigger:
       type: queue_job
       job: buy_spot
-      idempotency_key: TODO          # TODO: ex.: order_id interno
+      idempotency_key: TODO
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: FAILED           # erro de execução (não falta de estoque)
+
+  - from: PIX_PAID
+    to: AWAITING_LIQUIDITY
+    event: LIQUIDITY_INSUFFICIENT     # estoque secou entre o pré-cheque e a execução
+    guard: not liquidity_available
+
+  # --- Retenção por liquidez: retoma ao reabastecer, ou reembolsa (ADR-011) ---
+  - from: AWAITING_LIQUIDITY
+    to: BUYING
+    event: LIQUIDITY_RESTOCKED        # operador reabasteceu o estoque (Mundo 2)
+    effect: exchange.buy_spot
+    trigger:
+      type: queue_job
+      job: buy_spot
+      idempotency_key: TODO
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
       failure_state: FAILED
 
+  - from: AWAITING_LIQUIDITY
+    to: FAILED
+    event: REFUND_DECIDED             # decisão operacional de reembolsar/desistir
+    trigger: { type: queue_job, job: refund, idempotency_key: TODO }
+
+  # --- Compra -> saque -> entrega ---
   - from: BUYING
     to: BOUGHT
-    event: FILL_COMPLETE             # inclui resolução de fill parcial (limit IOC ~10% — ADR-001)
+    event: FILL_COMPLETE              # inclui resolução de fill parcial (limit IOC ~10% — ADR-001)
     effect: exchange.get_order
     trigger:
       type: queue_job
@@ -145,7 +182,7 @@ transitions:
     trigger:
       type: queue_job
       job: withdraw_onchain
-      idempotency_key: TODO          # TODO: ex.: withdrawal_id (evita saque dobrado)
+      idempotency_key: TODO
     on_failure:
       retry: { max_attempts: TODO, backoff: TODO }
       dead_letter: true
@@ -156,7 +193,7 @@ transitions:
     event: WITHDRAW_CONFIRMED
     effect: exchange.get_withdrawal
     trigger:
-      type: queue_job                # disparado pelo monitor WebSocket privado; polling fallback
+      type: queue_job
       job: confirm_withdrawal
       idempotency_key: TODO
     on_failure:
@@ -165,7 +202,6 @@ transitions:
       failure_state: FAILED
 
 # ---------------------------------------------------------------------------
-# Os efeitos (qual capability roda em cada transição) estão declarados INLINE
-# acima, no campo `effect` de cada transição — fonte única, sem duplicar.
-# Sem agente no MVP (princípio 3 / ADR-003): tudo determinístico.
+# Os efeitos estão declarados INLINE acima (campo `effect`). Sem agente no MVP
+# (princípio 3 / ADR-003): tudo determinístico.
 # ---------------------------------------------------------------------------

@@ -11,6 +11,9 @@
 ## Papel (capability)
 
 - Implementa: `on_ramp`
+- **Entrega:** PIX → **DePix** (BRL 1:1 na Liquid), creditado na **carteira Liquid
+  do operador** (estoque de ENTRADA — ver `../domain/liquidity-model.md`). A Eulen
+  **não** entrega a moeda final ao cliente; isso é o lunium-api via MEXC (Mundo 1).
 
 ## Credenciais e ambiente
 
