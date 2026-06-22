@@ -37,7 +37,7 @@ persistente — e host persistente **já vem com IP estático** de graça/barato
   on-chain** (processo vivo, não morre após a request); (2) **crons baratos**
   (sincronizar ordens MEXC, varrer pendências); (3) **WebSocket longo com a MEXC**
   (conexão persistente). Reforça ADR-009.
-- **Front (`comprecripto-app`) na Vercel** hospeda **só a UI**. **Nunca** detém
+- **Front (`vendacripto-app`) na Vercel** hospeda **só a UI**. **Nunca** detém
   chave de provedor nem chama provedor direto — só chama a `lunium-api` por
   **HTTPS com token**. Logo **o front não precisa de IP fixo**.
 - **Egress por um IP só:** todo tráfego de saída para provedores sai pelo IP da

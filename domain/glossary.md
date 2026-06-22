@@ -15,7 +15,7 @@
 - **Adapter** — a implementação concreta de um port por um provedor (ex.: Eulen
   é o adapter do port `on_ramp`; MEXC, do `exchange`). Ver ADR-006.
 - **Cliente** — consumidor da infraestrutura Lunium (ex.: Cliente #001 =
-  `comprecripto.io`). A infra é client-agnostic. Ver ADR-005.
+  `vendacripto.io`). A infra é client-agnostic. Ver ADR-005.
 
 ## Fluxo de dinheiro
 

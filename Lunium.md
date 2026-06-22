@@ -2,7 +2,7 @@
 
 > **Este é o índice-mestre.** Claude Code e qualquer agente leem este arquivo
 > PRIMEIRO. Ele aponta para toda a fonte de verdade do projeto.
-> O código vive em `lunium-api` (cash-out headless) e `comprecripto-app`
+> O código vive em `lunium-api` (cash-out headless) e `vendacripto-app`
 > (front que consome a API). Aqui não roda nada — aqui se decide tudo.
 
 -----
@@ -11,8 +11,8 @@
 
 **Infraestrutura headless de on/off-ramp cripto, AI-native** — o produto que o
 Lunium vende. Clientes plugam nessa infra para oferecer compra/venda de cripto
-aos seus usuários. O **Cliente #001 é `comprecripto.io`** (front próprio, repo
-`comprecripto-app`, separado) — ver `clients/comprecripto.md` e o ADR-005.
+aos seus usuários. O **Cliente #001 é `vendacripto.io`** (front próprio, repo
+`vendacripto-app`, separado) — ver `clients/vendacripto.md` e o ADR-005.
 
 A visão de produto é um **orquestrador de agentes** (compra e venda, texto/áudio),
 com execução determinística. **No MVP a camada de agente está adiada** (ADR-003) e
@@ -41,8 +41,8 @@ em ~10s) ou **convert** (demais moedas pela MEXC: venda spot → USDT → SmartP
 - [`lunium-api`](https://github.com/LimaDevBTC/lunium-api) (separado): serviço
   headless de **cash-out**. É o produto que o Lunium vende. Consome este brain para
   gerar e guiar código.
-- `comprecripto-app` (separado): front Next.js que consome a `lunium-api` e
-  serve no domínio comprecripto.io após o cutover de DNS.
+- `vendacripto-app` (separado): front Next.js que consome a `lunium-api` e
+  serve no domínio vendacripto.io após o cutover de DNS.
 
 Parte deste brain é **prosa para humanos** (`.md`) e parte é **estruturada para
 máquina** (`.yaml`/`.json`) — porque os agentes parseiam estados, limites e
@@ -91,7 +91,7 @@ wikilunium/
 │   ├── eulen.md               # on-ramp PIX-in (cash-in — FASE 2)
 │   └── _candidates.md         # provedores citados, ainda não decididos
 ├── clients/                   # consumidores da infra Lunium
-│   └── comprecripto.md        # Cliente #001 (front comprecripto-app, separado)
+│   └── vendacripto.md        # Cliente #001 (front vendacripto-app, separado)
 ├── agents/                    # um arquivo por agente
 │   ├── conversation-agent.md
 │   ├── execution-agent.md
@@ -118,7 +118,7 @@ wikilunium/
 |Item            |Status                                                                                                  |
 |----------------|--------------------------------------------------------------------------------------------------------|
 |Pessoas         |Guilherme (CEO/dono), Mateus (ops/corretoras), Igor (investidor USD 20k), CTO (você, USD 3k integrações)|
-|Domínio         |`comprecripto.io` (registrado) — front do Cliente #001                                                                          |
+|Domínio         |`vendacripto.io` (registrado) — front do Cliente #001                                                                          |
 |MVP             |**Cash-out ponta a ponta** (vender cripto → PIX via SmartPay) — FAST + convert (ADR-016)                |
 |Modelo de agente|**Adiado** — MVP é cash-out 100% determinístico. Agêntico vira fase 2 (ADR-003)                         |
 |Stack           |TypeScript/Node + NestJS (ADR-009) · Postgres (ADR-004) · DDD/hexagonal (ADR-006) · fila BullMQ/Redis (ADR-007) · VPS + IP de egress (ADR-015)|
@@ -140,7 +140,7 @@ cripto e recebe BRL no PIX, via SmartPay, em dois caminhos:
   PIX. Mais lento, taxa menor.
 
 Inclui catálogo dinâmico da MEXC, **screening de compliance** antes do payout
-(ADR-012) e reconciliação. Exposto como API headless para o `comprecripto-app`.
+(ADR-012) e reconciliação. Exposto como API headless para o `vendacripto-app`.
 
 **Capital-light:** o cliente traz o ativo e a SmartPay frente o BRL — **sem estoque
 pré-financiado nem reserva** (ADR-011/014 são de cash-in/fase 2).
@@ -173,7 +173,7 @@ código v1 é uma fatia fina e determinística.
   store eventualmente-consistente.
 - **ADR-005 — Plataforma vs cliente.** Lunium é infraestrutura headless
   multi-tenant-*ready*; cada consumidor é um cliente. Cliente #001 =
-  `comprecripto.io` (front `comprecripto-app`, repo separado). Specs de infra
+  `vendacripto.io` (front `vendacripto-app`, repo separado). Specs de infra
   ficam client-agnostic; multi-tenant nasce pronto na arquitetura, mas não é
   construído no MVP (um cliente só).
 - **ADR-006 — DDD + Ports & Adapters.** Domínio isolado; provedores, banco e fila

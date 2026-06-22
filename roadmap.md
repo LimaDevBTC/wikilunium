@@ -119,8 +119,8 @@ Bloqueia fases adiante; rodar desde o dia 1.
 
 ---
 
-## Integração com o front (`comprecripto-app`, Cliente #001 — ADR-005)
-Paralelo a partir da Fase 2/3: estabilizar o **contrato da API headless** que o front consome; **cutover de DNS** para `comprecripto.io` no fim. Front é repo separado; a infra fica client-agnostic.
+## Integração com o front (`vendacripto-app`, Cliente #001 — ADR-005)
+Paralelo a partir da Fase 2/3: estabilizar o **contrato da API headless** que o front consome; **cutover de DNS** para `vendacripto.io` no fim. Front é repo separado; a infra fica client-agnostic.
 
 ## Explicitamente FORA do MVP (não fazer agora)
 **Cash-in (comprar cripto — Eulen/PIX-in)**, camada agêntica (fase 2 — ADR-003), múltiplos provedores simultâneos, troca automática de corretora, PIX próprio, moeda própria. A arquitetura já nasce plugável para isso (capabilities/ports), mas o código v1 é fatia fina.

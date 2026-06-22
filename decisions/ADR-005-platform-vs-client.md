@@ -10,7 +10,7 @@
 
 ## Contexto
 
-O `comprecripto.io` é frequentemente confundido com o produto. Ele **não é**: é o
+O `vendacripto.io` é frequentemente confundido com o produto. Ele **não é**: é o
 **primeiro cliente** da infraestrutura. Precisamos fixar essa fronteira para o
 Lunium permanecer vendável a um Cliente #002 sem reescrita. Espelha o princípio
 inegociável 1 (provedores são ferramentas intercambiáveis), aplicado agora
@@ -19,8 +19,8 @@ também aos **clientes**.
 ## Decisão
 
 O **Lunium é infraestrutura headless multi-tenant-*ready***; cada consumidor é um
-**cliente**. O **Cliente #001 é `comprecripto.io`** (front `comprecripto-app`,
-repo separado — ver `clients/comprecripto.md`). Os specs de infra (`domain/`,
+**cliente**. O **Cliente #001 é `vendacripto.io`** (front `vendacripto-app`,
+repo separado — ver `clients/vendacripto.md`). Os specs de infra (`domain/`,
 `providers/`, contratos) permanecem **client-agnostic**: nada específico de um
 cliente vaza para eles. Multi-tenant **nasce pronto na arquitetura**, mas **não é
 construído no MVP** (um cliente só).

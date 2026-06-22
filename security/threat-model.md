@@ -14,7 +14,7 @@
   a obrigações; tratar como ativo a proteger, não detalhe. Ver ADR-012 / pauta.
 
 ## Superfícies de ataque
-- **API headless** exposta ao front (comprecripto-app).
+- **API headless** exposta ao front (vendacripto-app).
 - **Webhook da SmartPay** (payout — entrada externa, autenticar sempre).
 - **Depósito on-chain do cliente** (valor/rede/origem não confiáveis por padrão).
 - **Integrações de provedor** (respostas da MEXC/SmartPay não são confiáveis por padrão).

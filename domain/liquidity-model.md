@@ -7,7 +7,7 @@
 > Este arquivo é a fonte de verdade sobre COMO o valor flui no cash-in e, por
 > consequência, o que o MVP automatiza e o que fica de fora. `state-machine.yaml`,
 > os providers e a reconciliação derivam daqui. Ver ADR-011.
-> Nota de escopo: descreve a infra de forma client-agnostic. O comprecripto.io
+> Nota de escopo: descreve a infra de forma client-agnostic. O vendacripto.io
 > (Cliente #001) é o primeiro consumidor, mas o modelo vale para qualquer cliente.
 
 ## Princípio central

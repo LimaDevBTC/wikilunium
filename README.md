@@ -22,11 +22,11 @@ que o Lunium vende; clientes plugam nessa infra.
 - **wikilunium** (este) — o brain. Fonte de verdade. Não executa nada.
 - **[lunium-api](https://github.com/LimaDevBTC/lunium-api)** — serviço headless de
   **cash-out**. Consome este brain para gerar e guiar o código. **Repo separado.**
-- **comprecripto-app** — front Next.js do **Cliente #001** (`comprecripto.io`),
+- **vendacripto-app** — front Next.js do **Cliente #001** (`vendacripto.io`),
   que consome a `lunium-api`. **Repo separado.** Ver
-  [`clients/comprecripto.md`](clients/comprecripto.md).
+  [`clients/vendacripto.md`](clients/vendacripto.md).
 
-> Lunium é a infraestrutura; `comprecripto.io` é um **cliente** dela — não o
+> Lunium é a infraestrutura; `vendacripto.io` é um **cliente** dela — não o
 > contrário. Os specs de infra ficam client-agnostic. Ver ADR-005.
 
 ## Como navegar
@@ -38,7 +38,7 @@ que o Lunium vende; clientes plugam nessa infra.
 - [`providers/`](providers/) — doutrina de cada provedor + o contrato de
   capability (máquina).
 - [`clients/`](clients/) — registro dos clientes da infra (#001 =
-  `comprecripto.io`).
+  `vendacripto.io`).
 - [`agents/`](agents/) — **casca da fase 2** (camada agêntica adiada — não usar
   no MVP).
 - [`runbooks/`](runbooks/) — procedimentos operacionais (continuidade).
