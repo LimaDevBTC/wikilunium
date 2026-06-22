@@ -1,48 +1,30 @@
 # ADR-002 — Sub-conta por usuário
 
-> Como o Lunium segrega fundos e identifica depósitos na MEXC.
+> **⚠️ SUPERADO pelo [ADR-017](ADR-017-master-account-no-subaccounts.md)**
+> (2026-06-22): limite de 30 sub-contas e exigência de API key por sub-conta
+> inviabilizam o modelo para o MVP. Adotada conta master única + identificação
+> por `txId`. Sub-contas retornam quando o MEXC Broker Program for aprovado.
 
-> **STATUS: rascunho — revisar**
-
-- **Status:** Aceito (rascunho)
+- **Status:** Superado por ADR-017
 - **Data:** 2026-06-10
 - **Decisores:** Guilherme, Mateus, CTO
 
-## Contexto
+## Contexto (histórico)
 
 Sem segregação por usuário, os fundos se misturam numa conta única (comingling) e
-os depósitos ficam não-identificáveis — reconciliação e auditoria viram um
-pesadelo. Precisamos de segregação nativa desde o início.
+os depósitos ficam não-identificáveis. Precisamos de segregação nativa desde o início.
 
-(A lição de *continuidade* do ambiente anterior é organizacional — concentração
-de conhecimento, não comingling. Ver `security/threat-model.md`.)
+## Decisão original (revogada para MVP)
 
-## Decisão
+Sub-conta por usuário na MEXC com sub-contas virtuais, migrando para Broker Program.
 
-Cada usuário recebe uma **sub-conta** na MEXC, dando **segregação nativa de
-fundos** e **depósito identificável**. Começa com **sub-contas virtuais** (já
-disponíveis na API normal) e **migra para o Broker Program** quando aprovado.
-Evita comingling e garante depósito identificável desde o início.
+## Por que foi superada
 
-## Consequências
+Ver ADR-017 para a análise completa. Em resumo:
+- Limite duro de 30 sub-contas na conta standard.
+- Cada sub-conta exige API key própria armazenada no banco (N pares de credenciais).
+- Broker Program exige volume demonstrado — indisponível no lançamento.
 
-- Implica **gestão de sub-contas** e um **mapeamento usuário↔sub-conta**
-  persistido; `exchange.subaccount_create` é idempotente por `user_ref` e roda no
-  **onboarding do usuário, antes do primeiro QUOTE** (a máquina de estados assume
-  `subaccount_id` existente).
-- **Reconciliação por sub-conta** (`exchange.subaccount_balance`), alinhada à
-  reconciliação de dois eixos (ADR-011).
-- **Caminho de migração para o Broker Program** quando aprovado — o port
-  `exchange` não muda; troca-se o adapter/credencial.
-- **Risco a verificar (Faixa B / pauta):** confirmar que sub-contas **virtuais**
-  na API normal da MEXC suportam, no tier institucional e sem o Broker, depósito
-  e saque independentes por sub-conta — e que o ToS permite segregar fundos de
-  terceiros. É uma premissa load-bearing deste ADR.
+## Decisão atual
 
-## Alternativas consideradas
-
-- **Conta única com memo/tag por depósito** — descartada: não segrega fundos
-  (comingling), reconciliação e auditoria viram um pesadelo e some a fronteira
-  por usuário.
-- **Uma conta MEXC por usuário (não sub-conta)** — descartada: inviável
-  operacionalmente (KYB por conta) e não escala.
+Ver **ADR-017**: conta master única, identificação por `txId` on-chain.
