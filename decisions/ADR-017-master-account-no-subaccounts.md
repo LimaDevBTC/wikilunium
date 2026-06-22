@@ -2,6 +2,7 @@
 
 **Status:** Aceito  
 **Data:** 2026-06-22  
+**Decisores:** Guilherme, CTO  
 **Supercede parcialmente:** ADR-002 (sub-conta por usuário) — revogado para o MVP; mantém a intenção de segregação como objetivo de fase posterior.
 
 ---
@@ -43,6 +44,18 @@ sell_spot (master) → withdraw USDT → SmartPay → PIX
 - **`subaccountId` removido** do agregado `CashOut` e do `ExchangePort` — sem
   efeito no domínio ou na máquina de estados.
 
+### Idempotência a nível de MEXC
+
+Como não há sub-conta para isolar ordens, usamos os campos nativos de idempotência:
+
+| Operação | Campo MEXC | Valor |
+|---|---|---|
+| Venda spot | `newClientOrderId` | `"{cashOutId}:sell"` |
+| Saque on-chain | `withdrawOrderId` | `"{cashOutId}:forward"` |
+
+Ambos garantem que a MEXC ignore uma segunda chamada com o mesmo identificador
+(código `-2010 DUPLICATE_CLIENT_ORDER`).
+
 ## Consequências
 
 **Positivo**
@@ -54,7 +67,7 @@ sell_spot (master) → withdraw USDT → SmartPay → PIX
 **Negativo e mitigações**
 
 | Risco | Mitigação |
-|-------|-----------|
+|---|---|
 | Fundos de múltiplos usuários coexistem no master | Janela curta (min a horas); venda e saque imediatos após confirmação; reconciliação (Fase 4) vincula cada saldo a um cash-out por `txId`. |
 | Mesmo endereço de depósito para todos | Endereço exibido uma vez por operação; TTL de cotação curto (15 min); matching por `txId`, não por endereço. |
 | Usuário reutiliza endereço de cash-out anterior | Cash-out expirado não aceita novo depósito; depósito "órfão" → MANUAL_REVIEW via reaper. |
@@ -78,3 +91,11 @@ Quando o volume justificar, aplicar ao MEXC Broker Program. No Broker Program:
 
 O `ExchangePort` será estendido com `subaccountCreate` / `subaccountBalance`
 nessa fase, sem quebrar o modelo atual.
+
+## Alternativas consideradas
+
+- **Manter ADR-002 e esperar o Broker Program** — descartada: impossível escalar além
+  de 30 usuários e a aprovação do Broker Program não está sob nosso controle.
+- **Conta MEXC por usuário (não sub-conta)** — descartada: KYB por conta, inviável.
+- **Memo/tag por depósito** — MEXC não suporta memo em todos os ativos/redes; o txId
+  on-chain é mais confiável e universal.

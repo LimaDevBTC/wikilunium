@@ -5,6 +5,42 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
+### Implementação da lunium-api — Frente 1 + 2A (2026-06-22)
+
+**ADR-017 — Conta master + rastreamento por txId (supercede ADR-002)**
+- Descoberto: limite de 30 sub-contas e API key por sub-conta inviabilizam ADR-002.
+- Decisão: conta master única; depósitos identificados por txId on-chain.
+- `subaccountId` removido do domínio, persistência e ports.
+- Idempotência via `newClientOrderId` (venda) e `withdrawOrderId` (saque).
+- Caminho de migração para Broker Program documentado (port não muda, só o adapter).
+
+**Frente 1 — Camada de orquestração com fakes**
+- `PrismaPersistenceAdapter`: `create` / `findById` / `applyTransition` — transação
+  ACID única (CashOut update + CashOutEvent + OutboxJob) com idempotência P2002.
+- `OutboxRelay`: polling 500ms, publica `OutboxJob` no BullMQ por `idempotencyKey`.
+- `BullMqQueueAdapter`: `ConnectionOptions` via `REDIS_URL`.
+- `CashOutOrchestrator`: guards determinísticos, dispatch de effects por nome, `hasApplied` early-exit.
+- `QuoteService`: path FAST/CONVERT (USDT em polygon/solana/tron = FAST), validação
+  catálogo, `truncateDown`, TTL 15 min, `expiresAt`.
+- `CashOutController`: 4 endpoints (quote, accept, status, webhook SmartPay).
+- `CashOutWorker` (BullMQ, roteamento por `job.name`) + `ReaperWorker` (expiração e stuck jobs).
+- 20 testes E2E com `FakePersistence` + `FakeQueue` (FAST, CONVERT, idempotência, falhas).
+
+**Frente 2A — `MexcAdapter` real**
+- `MexcHttpClient`: HMAC-SHA256, header `X-MEXC-APIKEY`, parse de erros `{code, msg}`.
+- `mexc.types.ts`: tipos brutos de todas as respostas MEXC v3.
+- `MexcAdapter`: 8 métodos do `ExchangePort` (catálogo, depósito, venda IOC, saque, saldo).
+- Normalização de redes: TRX↔tron, SOL↔solana, MATIC↔polygon, BTC↔btc.
+- Idempotência no `sellSpot`: `-2010 DUPLICATE_CLIENT_ORDER` → busca por `origClientOrderId`.
+- Erros mapeados: balanço insuficiente, par suspenso, rede suspensa, allowlist.
+
+**Wiki (este repositório)**
+- ADR-017 criado; ADR-002 marcado como superseded.
+- `providers/mexc.md`: preenchido com endpoints reais, auth HMAC, normalização de
+  redes, status de saque, tabela de erros.
+- `Lunium.md`: repo `lunium-api` linkado, estado atual atualizado, ADR-002→017.
+- `roadmap.md`: Fase 1 ✅, Fase 2 (MEXC ✅ / SmartPay ⏳), Fase 3 ✅ (com fakes).
+
 ### Pivot do MVP para cash-out (2026-06-21)
 
 **Mudança de escopo (ADR-016)**

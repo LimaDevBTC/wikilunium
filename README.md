@@ -20,8 +20,8 @@ que o Lunium vende; clientes plugam nessa infra.
 ## Os três repositórios
 
 - **wikilunium** (este) — o brain. Fonte de verdade. Não executa nada.
-- **lunium-api** — serviço headless de cash-in. Consome este brain para gerar e
-  guiar o código. **Repo separado.**
+- **[lunium-api](https://github.com/LimaDevBTC/lunium-api)** — serviço headless de
+  **cash-out**. Consome este brain para gerar e guiar o código. **Repo separado.**
 - **comprecripto-app** — front Next.js do **Cliente #001** (`comprecripto.io`),
   que consome a `lunium-api`. **Repo separado.** Ver
   [`clients/comprecripto.md`](clients/comprecripto.md).

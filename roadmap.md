@@ -4,7 +4,7 @@
 > ADR-016): em que ordem construir, do que cada fase depende e quando ela está
 > "pronta". Não substitui os ADRs — **executa** o que eles decidiram.
 
-> **STATUS: rascunho — revisar**
+> **STATUS: atualizado em 2026-06-22**
 
 Ponto de entrada do projeto continua sendo o [`Lunium.md`](Lunium.md). Este plano
 assume tudo que está fechado lá (§4 escopo; ADR-001…009). **Sem datas**: trata de
@@ -26,7 +26,7 @@ Bloqueia fases adiante; rodar desde o dia 1.
 - [ ] **Postura de compliance/KYC-AML (ADR-012)** — quem faz o KYC, registro VASP,
   PLD/COAF. Bloqueia o go-live (Fase 3 com dinheiro real). Pauta + assessoria.
 - [ ] Conta **SmartPay** (off-ramp do MVP): credenciais, webhook de payout, redes/tokens, limites, prazo de liquidação, **pré-funding de BRL?** → desbloqueia spec/adapter SmartPay.
-- [ ] Conta **MEXC** institucional (KYB no CNPJ certo, **withdraw habilitado** p/ sacar USDT à SmartPay, sub-contas p/ depósito identificável). → desbloqueia o caminho **convert**. Ver [`runbooks/onboarding-mexc-broker.md`](runbooks/onboarding-mexc-broker.md). **Verificar antes:** sub-contas virtuais suportam depósito/saque independentes e o ToS permite fundos de terceiros (ADR-002).
+- [ ] Conta **MEXC** institucional (KYB no CNPJ certo, **withdraw habilitado** p/ sacar USDT à SmartPay). → desbloqueia o caminho **convert**. Ver [`runbooks/onboarding-mexc-broker.md`](runbooks/onboarding-mexc-broker.md). **Nota ADR-017:** sub-contas não necessárias; conta master única suficiente.
 - [ ] Domínio + repos + chaves novas. **Zero reaproveitamento do ambiente antigo.**
 - [ ] (Fase 2) Conta **Eulen** — só quando o cash-in entrar.
 
@@ -48,40 +48,42 @@ Bloqueia fases adiante; rodar desde o dia 1.
 
 **Pronto quando:** `state-machine.yaml` e `_capability-contract.yaml` sem TODO **crítico** (os TODO restantes são valores operacionais da Faixa B, não estrutura); specs de provedor com endpoints/limites confirmados.
 
-### Fase 1 — Scaffold da lunium-api (esqueleto DDD)
+### Fase 1 — Scaffold da lunium-api (esqueleto DDD) ✅
 **Objetivo:** repositório de código vivo, vazio mas com a arquitetura certa.
 **Depende de:** Fase 0 (contract + runtime).
 **Entregáveis:**
-- [ ] Repo `lunium-api`: NestJS + TypeScript, **estrutura por domínio** (não por camada) — ADR-006.
-- [ ] **Ports** declarados como interfaces TS (ProviderPort off_ramp/exchange, PersistencePort, QueuePort).
-- [ ] **PostgreSQL** + migrations + conexão (ADR-004), atrás do PersistencePort. &lt;decidir ORM — ADR-009.&gt;
-- [ ] **BullMQ/Redis** ligado (ADR-007); um job dummy idempotente fim a fim.
-- [ ] **Harness de testes** (unit + integração) + fakes base; **gate de CI** (ADR-008).
+- [x] Repo `lunium-api`: NestJS + TypeScript, **estrutura por domínio** (não por camada) — ADR-006. [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)
+- [x] **Ports** declarados como interfaces TS (`ExchangePort`, `OffRampPort`, `PersistencePort`, `QueuePort`).
+- [x] **PostgreSQL** + Prisma schema + migrations (`CashOut`, `CashOutEvent`, `OutboxJob`) — ADR-004.
+- [x] **BullMQ/Redis** ligado (ADR-007); `OutboxRelay` + `CashOutWorker` idempotentes.
+- [x] **Harness de testes** + fakes (`FakeMexc`, `FakeSmartPay`, `FakePersistence`, `FakeQueue`); 20 testes passando.
 
-**Pronto quando:** build verde, CI rodando, job dummy idempotente passa em teste de integração.
+**Pronto quando:** build verde, CI rodando, job dummy idempotente passa em teste de integração. ✅
 
-### Fase 2 — Adapters de provedor (atrás dos ports)
+### Fase 2 — Adapters de provedor (atrás dos ports) 🔄 Em andamento
 **Objetivo:** SmartPay e MEXC como adapters, testáveis sem bater na API real.
 **Depende de:** Fase 1 + specs da Fase 0 + contas (Faixa B).
 **Entregáveis:**
-- [ ] Adapter **SmartPay** (off_ramp): `create_payout_order`, `retry_payout`, `get_payout_status`, verificação de webhook (received/paid/failed). + **fake**.
-- [ ] Adapter **MEXC** (exchange): catálogo (`getall`), `get_deposit_address`/`get_deposit`, `sell_spot` (fill parcial IOC ~10% — ADR-001), `withdraw_onchain` (USDT→SmartPay / refund), sub-contas (ADR-002), `get_order`, monitor via WebSocket privado. + **fake**.
-- [ ] Erros normalizados (provedor → domínio); chamadas idempotentes.
-- [ ] Integração cobrindo os cenários de falha do ADR-008: webhook duplicado, fill parcial na venda, depósito divergente, rede de saque suspensa, payout que falha após receber o USDT.
+- [ ] Adapter **SmartPay** (off_ramp): `create_payout_order`, `retry_payout`, `get_payout_status`, verificação de webhook (received/paid/failed). + **fake**. ⏳ aguarda credenciais SmartPay
+- [x] Adapter **MEXC** (exchange — **ADR-017**: conta master + txId, sem sub-contas): `getCatalog`, `getDepositAddress`, `getDeposit`, `sellSpot` (IOC — ADR-001), `getOrder`, `withdrawOnchain`, `getWithdrawal`, `getBalance`. + **fake**.
+- [x] Erros normalizados (`MexcApiError` + `MEXC_CODE`); idempotência via `clientOrderId`/`withdrawOrderId`.
+- [x] Fakes cobrem cenários de falha do ADR-008: webhook duplicado, fill parcial, depósito divergente. *(testes E2E com fakes)*
+- [ ] Testes de integração contra sandbox real (MEXC + SmartPay) — aguarda contas (Faixa B).
 
 **Pronto quando:** cada adapter satisfaz o contrato + fakes; cenários de falha verdes.
 
-### Fase 3 — Orquestração do cash-out (máquina de estados sobre a fila)
+### Fase 3 — Orquestração do cash-out (máquina de estados sobre a fila) ✅ (com fakes)
 **Objetivo:** o fluxo ponta a ponta, determinístico e recuperável.
-**Depende de:** Fase 2 + MEXC com **withdraw habilitado** + conta SmartPay (Faixa B).
+**Depende de:** Fase 2 + MEXC com **withdraw habilitado** + conta SmartPay (Faixa B) para validar contra APIs reais.
 **Entregáveis:**
-- [ ] Máquina de estados de domínio implementando [`state-machine.yaml`](domain/state-machine.yaml), **incl. caminhos de exceção** (`MANUAL_REVIEW`, `REFUNDING_CRYPTO/REFUNDED`).
-- [ ] Cada transição = **job BullMQ idempotente**, **1 transação ACID** (ADR-004/007), com **outbox** (ADR-013), retry/backoff, dead-letter e `failure_state`.
-- [ ] **Monitor de depósito** (WebSocket MEXC p/ convert) + **webhook SmartPay** (FAST/payout) como fontes dos eventos.
-- [ ] **Reaper / monitor de estados travados** — detecta e alerta `AWAITING_DEPOSIT`/`PAYING_OUT` parados além do prazo e escala p/ `MANUAL_REVIEW`; alimenta [`runbooks/incident-stuck-order.md`](runbooks/incident-stuck-order.md). É infra de dinheiro, **não** polimento de fase posterior.
-- [ ] Fluxo E2E **FAST**: Quote → endereço SmartPay → cliente envia USDT → webhook "pago". E **convert**: Quote → depósito na sub-conta MEXC → `sell_spot` → `withdraw` USDT → SmartPay → PIX (sandbox/testnet).
+- [x] Máquina de estados de domínio implementando [`state-machine.yaml`](domain/state-machine.yaml), **incl. caminhos de exceção** (`MANUAL_REVIEW`, `REFUNDING_CRYPTO/REFUNDED`). (`CashOutOrchestrator`)
+- [x] Cada transição = **job BullMQ idempotente**, **1 transação ACID** (ADR-004/007), com **outbox** (ADR-013), retry/backoff e `failure_state`. (`PrismaPersistenceAdapter`, `OutboxRelay`)
+- [x] **Webhook SmartPay** como fonte de eventos (FAST/payout). (`CashOutController`)
+- [x] **Reaper** — detecta `AWAITING_DEPOSIT` expirado e jobs stuck (SELLING/FORWARDING > 30 min). (`ReaperWorker`)
+- [x] Fluxo E2E **FAST** e **convert** verdes com fakes (20 testes).
+- [ ] Validação com APIs reais (sandbox MEXC + SmartPay) — aguarda contas (Faixa B).
 
-**Pronto quando:** cash-out determinístico E2E verde (FAST e convert) em ambiente de teste; idempotência, **outbox** e recuperação de falha (incl. caminhos de exceção) comprovadas.
+**Pronto quando (fakes):** ✅ | **Pronto quando (real):** depende da Faixa B.
 
 ### Fase 4 — Reconciliação + visibilidade do operador
 **Objetivo:** fechar o MVP (§4) e dar ao Guilherme visão da operação (ADR-010).

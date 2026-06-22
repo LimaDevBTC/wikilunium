@@ -2,7 +2,7 @@
 
 > **Este é o índice-mestre.** Claude Code e qualquer agente leem este arquivo
 > PRIMEIRO. Ele aponta para toda a fonte de verdade do projeto.
-> O código vive em `lunium-api` (cash-in headless) e `comprecripto-app`
+> O código vive em `lunium-api` (cash-out headless) e `comprecripto-app`
 > (front que consome a API). Aqui não roda nada — aqui se decide tudo.
 
 -----
@@ -38,8 +38,9 @@ em ~10s) ou **convert** (demais moedas pela MEXC: venda spot → USDT → SmartP
 
 - `wikilunium` (este repo): specs, ADRs, máquinas de estado, runbooks,
   doutrina de provedor, prompts. **Fonte de verdade.**
-- `lunium-api` (separado): serviço headless de cash-in. É o produto que o
-  Lunium vende. Consome este brain para gerar e guiar código.
+- [`lunium-api`](https://github.com/LimaDevBTC/lunium-api) (separado): serviço
+  headless de **cash-out**. É o produto que o Lunium vende. Consome este brain para
+  gerar e guiar código.
 - `comprecripto-app` (separado): front Next.js que consome a `lunium-api` e
   serve no domínio comprecripto.io após o cutover de DNS.
 
@@ -62,7 +63,7 @@ wikilunium/
 ├── decisions/                 # ADRs (Architecture Decision Records)
 │   ├── ADR-000-template.md
 │   ├── ADR-001-spot-over-convert.md
-│   ├── ADR-002-subaccount-per-user.md
+│   ├── ADR-002-subaccount-per-user.md   # SUPERSEDED por ADR-017
 │   ├── ADR-003-hybrid-llm-deterministic.md
 │   ├── ADR-004-database-postgres.md       # banco principal: PostgreSQL
 │   ├── ADR-005-platform-vs-client.md      # fronteira infra-vs-cliente
@@ -76,7 +77,8 @@ wikilunium/
 │   ├── ADR-013-transactional-outbox.md    # consistência fila↔banco (anti dual-write)
 │   ├── ADR-014-liquidity-reservation.md   # reserva anti-oversell (available-to-promise)
 │   ├── ADR-015-deployment-topology-egress-ip.md  # onde roda + IP de egress (lição btcnopix)
-│   └── ADR-016-mvp-pivot-cash-out.md      # MVP = cash-out (vender cripto → PIX); cash-in vira fase 2
+│   ├── ADR-016-mvp-pivot-cash-out.md      # MVP = cash-out (vender cripto → PIX); cash-in vira fase 2
+│   └── ADR-017-master-account-no-subaccounts.md  # conta master + txId (supercede ADR-002)
 ├── domain/
 │   ├── liquidity-model.md     # os dois mundos — define o escopo do MVP
 │   ├── state-machine.yaml     # estados canônicos (máquina) — fonte única
@@ -121,7 +123,8 @@ wikilunium/
 |Modelo de agente|**Adiado** — MVP é cash-out 100% determinístico. Agêntico vira fase 2 (ADR-003)                         |
 |Stack           |TypeScript/Node + NestJS (ADR-009) · Postgres (ADR-004) · DDD/hexagonal (ADR-006) · fila BullMQ/Redis (ADR-007) · VPS + IP de egress (ADR-015)|
 |Off-ramp        |**SmartPay (PIX) — MVP**; recebe USDT e paga BRL                                                        |
-|Exchange        |MEXC — recebe depósito, **vende** spot → USDT, saca p/ SmartPay (convert); sub-conta por usuário (ADR-001, ADR-002)|
+|Exchange        |MEXC — recebe depósito, **vende** spot → USDT, saca p/ SmartPay (convert); **conta master + txId** (ADR-001, ADR-017)|
+|`lunium-api`    |**Implementado** — camada de orquestração (Frente 1) + `MexcAdapter` real (Frente 2A) · [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)|
 |On-ramp         |Eulen (PIX-in) — **fase 2** (cash-in)                                                                   |
 
 -----
@@ -132,8 +135,9 @@ wikilunium/
 cripto e recebe BRL no PIX, via SmartPay, em dois caminhos:
 - **FAST** — cliente envia **USDT (Polygon/Solana/Tron)** direto p/ a SmartPay →
   PIX em ~10s. Rápido, taxa maior. Sem MEXC.
-- **Convert** — demais moedas → depósito na **sub-conta MEXC** do cliente → **venda
-  spot → USDT** → saque do USDT p/ a SmartPay → PIX. Mais lento, taxa menor.
+- **Convert** — demais moedas → depósito na **conta master MEXC** (identificado por
+  txId on-chain — ADR-017) → **venda spot → USDT** → saque do USDT p/ a SmartPay →
+  PIX. Mais lento, taxa menor.
 
 Inclui catálogo dinâmico da MEXC, **screening de compliance** antes do payout
 (ADR-012) e reconciliação. Exposto como API headless para o `comprecripto-app`.
@@ -155,9 +159,12 @@ código v1 é uma fatia fina e determinística.
 - **ADR-001 — Spot, não Convert.** MEXC não tem Convert na API. Ordem spot via
   par USDT é mais barata (maker 0% / taker 0.05%) que o spread do Convert que
   pagam hoje. Tratar fill parcial (market = limit IOC a 10%).
-- **ADR-002 — Sub-conta por usuário.** Segregação nativa de fundos e depósito
-  identificável. Começa com sub-contas virtuais (já na API normal), migra para
-  Broker Program quando aprovado. Evita comingling de fundos.
+- **ADR-002 — Sub-conta por usuário. ⚠️ SUPERSEDED por ADR-017.** O limite de 30
+  sub-contas e a necessidade de API key por sub-conta tornaram o modelo inviável.
+- **ADR-017 — Conta master + txId.** Conta master única para todos os depósitos;
+  identificação por txId on-chain. Idempotência via `newClientOrderId` (venda) e
+  `withdrawOrderId` (saque). Caminho de migração para o Broker Program quando
+  aprovado — o port `exchange` não muda, só o adapter.
 - **ADR-003 — Agêntico adiado.** MVP é cash-in 100% determinístico. Quando a
   camada de agente entrar (fase 2), o modelo é híbrido: LLM conduz/aconselha,
   execução de dinheiro permanece determinística com confirmação explícita.
@@ -214,10 +221,10 @@ Começa imediatamente, roda em paralelo ao código:
 
 1. Conta **SmartPay** (off-ramp do MVP): credenciais, webhook de payout, redes/
    tokens aceitos, limites, prazo de liquidação, **pré-funding de BRL?** (ADR-016).
-1. Conta MEXC institucional (KYB) no nome da entidade certa, com withdraw
-   habilitado (saca USDT p/ a SmartPay) e sub-contas (depósito identificável) —
-   ver `runbooks/onboarding-mexc-broker.md`. KYB trava 1 conta por CNPJ e não
-   converte conta PF→PJ depois; nascer institucional desde já.
+1. Conta **MEXC institucional (KYB)** no nome da entidade certa, com withdraw
+   habilitado (saca USDT p/ a SmartPay) — ver `runbooks/onboarding-mexc-broker.md`.
+   KYB trava 1 conta por CNPJ e não converte PF→PJ; nascer institucional desde já.
+   **Nota ADR-017:** sem necessidade de sub-contas; conta master única suficiente.
 1. Domínio + repos + chaves novas. **Zero reaproveitamento do ambiente antigo.**
 1. (Fase 2) Conta Eulen empresarial — só quando o cash-in entrar.
 
@@ -235,11 +242,37 @@ Começa imediatamente, roda em paralelo ao código:
 
 -----
 
-## 8. Próximos passos imediatos
+## 8. Estado do código — `lunium-api` (2026-06-22)
 
-1. Criar este repo `wikilunium` com a estrutura da seção 2.
-1. Preencher `meetings/2026-06-10-kickoff.md` com a ata (já temos o conteúdo).
-1. Escrever ADR-001, 002, 003 (decisões fechadas) e abrir ADR-004 (stack).
-1. Definir `domain/state-machine.yaml` e `providers/_capability-contract.yaml` —
-   são os dois arquivos que destravam a geração de código.
-1. Só então abrir `lunium-api` e gerar o esqueleto a partir do brain.
+Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)
+
+### Concluído
+
+**Frente 1 — Camada de orquestração (com fakes)**
+- `PrismaPersistenceAdapter`: create / findById / applyTransition com outbox ACID (ADR-013)
+- `OutboxRelay`: polling 500ms, publica `OutboxJob` no BullMQ por `idempotencyKey`
+- `BullMqQueueAdapter`: `ConnectionOptions` via `REDIS_URL`
+- `CashOutOrchestrator`: guards determinísticos, dispatch de effects por nome, `hasApplied` early-exit
+- `QuoteService`: path FAST/CONVERT, validação catálogo, `truncateDown`, TTL 15 min
+- `CashOutController`: 4 endpoints (quote, accept, status, webhook SmartPay)
+- `CashOutWorker` + `ReaperWorker` (expiração e stuck jobs)
+- 20 testes E2E com `FakePersistence` + `FakeQueue` (FAST, CONVERT, idempotência, falhas)
+
+**Frente 2A — `MexcAdapter` real**
+- `MexcHttpClient`: HMAC-SHA256, `X-MEXC-APIKEY`, parse de erros `code/msg`
+- `MexcAdapter`: 8 métodos do `ExchangePort` (catálogo, depósito, venda IOC, saque, saldo)
+- Normalização de redes (TRX↔tron, SOL↔solana, MATIC↔polygon)
+- Idempotência no `sellSpot` (`DUPLICATE_CLIENT_ORDER` → busca por `origClientOrderId`)
+
+### Pendente (Faixa B — aguarda credenciais)
+
+- `SmartPayAdapter` real (Frente 2B)
+- Testes de integração contra sandbox MEXC e SmartPay
+- `MexcAdapter` registrado no `AppModule` (hoje usa `FakeMexc` em produção)
+
+### Próximos passos técnicos
+
+1. **`SmartPayAdapter`** — quando as credenciais SmartPay chegarem
+2. **Registrar `MexcAdapter` no `AppModule`** — substituir `FakeMexc` (precisa das chaves MEXC)
+3. **Frente 3** — reconciliação + endpoints de operador + Telegram bot
+4. **Frente 4** — hardening, runbooks, gate de go-live
