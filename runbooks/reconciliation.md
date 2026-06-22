@@ -1,33 +1,31 @@
-# Runbook: Reconciliação
+# Runbook: Reconciliação (cash-out)
 
-> Como reconciliar os DOIS eixos do cash-in — entrada (PIX/DePix) e saída (MEXC) —
-> já que são estoques separados (ADR-011 / `../domain/liquidity-model.md`).
+> Como reconciliar o fluxo de **cash-out** (ADR-016) ao longo da cadeia: depósito
+> do cliente → venda/saque (MEXC, convert) → payout em BRL (SmartPay).
 
 > **STATUS: rascunho — a preencher**
 
-## Os dois eixos
-- **Entrada:** PIX recebido / DePix creditado — Eulen + carteira Liquid.
-- **Saída:** moeda comprada + sacada — MEXC (estoque de saída).
-
-Os dois estoques são desacoplados e reequilibrados manualmente (Mundo 2). A
-reconciliação confere cada eixo e a saúde de cada estoque.
+## Pontos a casar (por operação)
+- **Depósito do cliente** — cripto recebida (on-chain / `subaccount_balance` MEXC no
+  convert; webhook SmartPay no FAST).
+- **Venda → USDT** (convert) — ordem `sell_spot` na MEXC (`get_order`).
+- **Forward** (convert) — saque do USDT para a SmartPay (`get_withdrawal`).
+- **Payout** — PIX pago ao cliente (webhook/extrato SmartPay; `pix_e2e_id`).
 
 ## Fontes de verdade
-- Entrada: webhooks/extrato Eulen + saldo da carteira Liquid. TODO: confirmar.
-- Saída: ordens + saques + saldo da MEXC (`subaccount_balance`). TODO: confirmar.
+- Depósito/venda/saque: MEXC (`get_deposit`, `get_order`, `get_withdrawal`, `subaccount_balance`). TODO: confirmar.
+- Payout: webhook/extrato da SmartPay. TODO: confirmar.
 - Estado interno: a máquina de estados (`../domain/state-machine.yaml`).
 
 ## Procedimento
-1. TODO: casar cada operação do Mundo 1 (entrada ↔ saída ↔ estado).
-2. TODO: medir o saldo de cada estoque e a saúde (estoque de saída vs. demanda).
+1. TODO: casar cada cash-out (depósito ↔ venda ↔ forward ↔ payout ↔ estado).
+2. TODO: conferir que todo `COMPLETED` tem PIX confirmado e todo `REFUNDED` tem a cripto devolvida.
 
 ## Alertas
-- **Estoque de saída baixo** → avisar o operador a reabastecer ANTES de secar (ele
-  não pode descobrir que acabou quando o cliente já pagou).
+- **Operações "recebido, não pago"** (`MANUAL_REVIEW`) sem dono → escalar.
+- **Payout pendente** (`PAYING_OUT`) além do prazo → investigar com a SmartPay.
 
 ## Divergências e tratamento
-- TODO. Atenção especial aos estados de retenção (dinheiro do cliente parado):
-  `AWAITING_LIQUIDITY`, `WITHDRAW_BLOCKED` e `MANUAL_REVIEW`. Cada um precisa de
-  resolução explícita (retomar / `REFUNDING→REFUNDED` / `WRITE_OFF→FAILED`) — nada
-  pode ficar pendente sem dono. Conferir também que cada `REFUNDED` **liberou** a
-  reserva de liquidez (ADR-014).
+- TODO. Atenção especial a `MANUAL_REVIEW` (cripto do cliente já recebida): cada
+  caso precisa de resolução explícita (retomar venda/forward/payout, `REFUNDING_
+  CRYPTO→REFUNDED`, ou `WRITE_OFF→FAILED`) — nada pode ficar pendente sem dono.

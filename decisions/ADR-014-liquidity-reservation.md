@@ -3,7 +3,9 @@
 > Como o pré-cheque de liquidez (ADR-011) evita vender o mesmo estoque a vários
 > clientes ao mesmo tempo.
 
-> **STATUS: rascunho — mecanismo decidido; parâmetros pendentes de reunião**
+> **STATUS: específico de CASH-IN → FASE 2 (ADR-016).** O cash-out (MVP) não tem
+> estoque a vender em excesso (o cliente traz o ativo), então não há oversell. Este
+> mecanismo volta a valer quando o cash-in entrar.
 
 - **Status:** Aceito (rascunho)
 - **Data:** 2026-06-12

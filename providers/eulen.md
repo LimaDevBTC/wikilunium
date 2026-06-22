@@ -1,9 +1,10 @@
-# Provedor: Eulen — On-ramp PIX
+# Provedor: Eulen — On-ramp PIX (cash-in)
 
 > Doutrina do provedor Eulen como capability `on_ramp` (entrada de fiat via PIX).
-> Confirmado para o MVP.
 
-> **STATUS: stub — a preencher**
+> **STATUS: FASE 2 — não usar no MVP.** O MVP é cash-out (ADR-016); a entrada de
+> PIX (cash-in, comprar cripto) ficou para a fase 2. Casca preservada para quando
+> o cash-in entrar.
 
 <!-- Arquivo para HUMANO (doutrina). Os dados que o agente lê em runtime vivem em
      _capability-contract.yaml + config do provedor — não duplicar aqui. -->

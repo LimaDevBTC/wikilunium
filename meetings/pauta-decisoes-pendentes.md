@@ -4,7 +4,11 @@
 > incrementalmente) e que **dependem dos sócios** — Guilherme, Mateus, Igor. Esta
 > pauta sai dos TODOs do brain; quando a reunião acontecer, vira ata + ADRs.
 
-> **STATUS: rascunho — pauta a discutir**
+> **STATUS: rascunho — pauta a discutir.**
+> ⚠️ **O MVP pivotou para cash-out (ADR-016).** O documento de reunião atual e
+> completo é o [`caderno-decisoes-reuniao.md`](caderno-decisoes-reuniao.md) (com PDF).
+> Itens abaixo específicos de cash-in (oversell/float/reserva, refund via PIX, Eulen)
+> são **fase 2**; o restante (compliance, precificação, entidade/KYB) segue valendo.
 
 ## Negócio
 - **Precificação** — modelo da taxa embutida (% sobre o valor / spread no preço /

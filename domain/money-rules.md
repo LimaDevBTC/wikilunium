@@ -1,36 +1,41 @@
 # Regras de dinheiro
 
 > Ticket mínimo, taxa embutida, arredondamento e tratamento de fill parcial — as
-> regras determinísticas que governam valores no cash-in.
+> regras determinísticas que governam valores no **cash-out** (ADR-016).
 
 > **STATUS: rascunho — revisar**
 
 <!-- Arquivo para HUMANO. As regras viram código no domínio; os limites reais
-     vêm dos provedores (catálogo MEXC + limites Eulen). -->
+     vêm dos provedores (catálogo MEXC + limites SmartPay). -->
 
 ## Ticket (mínimo e máximo)
 
 **A definir — depende das integrações** (Faixa B do roadmap). O mínimo efetivo de
-cash-in **não é um número escolhido**, e sim o **maior** entre os limites que se
+cash-out **não é um número escolhido**, e sim o **maior** entre os limites que se
 aplicam na cadeia:
 
-- mínimo de cobrança PIX da **Eulen** (on-ramp);
-- mínimo de ordem (notional) da **MEXC** para o par;
-- mínimo de saque da **MEXC** na rede escolhida (varia por rede).
+- mínimo de payout/recebimento da **SmartPay** (off-ramp);
+- (convert) mínimo de ordem (notional) de **venda** na **MEXC** para o par;
+- mínimo de depósito na rede escolhida (varia por rede).
 
-A cotação (`QUOTE_CREATED`) valida o valor contra esses limites **antes** de gerar
-o PIX, e rejeita o que estiver abaixo do maior deles.
+A cotação (`QUOTE_CREATED`) valida o valor contra esses limites **antes** de aceitar,
+e rejeita o que estiver abaixo do maior deles.
 
-> TODO: confirmar cada limite com as contas reais (Eulen + MEXC `get_catalog`) e
+> TODO: confirmar cada limite com as contas reais (SmartPay + MEXC `get_catalog`) e
 > derivar o ticket mínimo. Máximo: TODO (limites operacionais / risco).
 
 ## Taxa embutida (markup Lunium)
 
 **A calcular.** O modelo (% sobre o valor, spread no preço, ou fixo + %) e o
-número ainda serão definidos.
+número ainda serão definidos. No cash-out há **duas taxas** pela diferença de
+custo/velocidade (ADR-016):
 
-> TODO: definir modelo e valor. A taxa deve ser **embutida no preço da cotação**
-> (transparente no Quote), não cobrada à parte.
+- **FAST** (USDT direto p/ a SmartPay) — mais rápido, **taxa maior** (premium).
+- **Convert** (via MEXC) — mais lento, **taxa menor**; precisa cobrir o custo da
+  venda spot + saque + o **risco de preço** entre cotar e vender.
+
+> TODO: definir modelo e os dois números. A taxa fica **embutida no BRL da cotação**
+> (transparente no Quote), não cobrada à parte. Ver `caderno`/pauta.
 
 ## Representação monetária (tipo)
 
@@ -48,24 +53,23 @@ do ativo (abaixo).
 MEXC** — o campo de precisão retornado por `exchange.get_catalog`
 (`/api/v3/capital/config/getall`). Não há precisão fixa no Lunium; é **por ativo**.
 
-**Decidido:** arredondar **truncando para baixo** a cripto entregue — nunca
-entregar mais do que foi comprado (evita dust e saldo negativo na sub-conta). O
-markup absorve a sobra de truncamento.
+**Decidido:** arredondar **a favor do operador** — **truncar para baixo** o BRL
+pago ao cliente (nunca pagar mais do que o USDT efetivamente rendeu/recebido) e a
+precisão por ativo no convert. Evita pagar valor que não temos lastro; o markup
+absorve a sobra de truncamento.
 
-## Fill parcial
+## Fill parcial (convert — venda spot)
 
 Tratado como **limit IOC com tolerância de ~10%** (ADR-001).
 
-- **Dentro da tolerância** (`fill_within_tolerance`): a quantidade entregue é a
-  `filled_qty` da ordem; transição `BUYING → BOUGHT`. O cliente recebe o
-  efetivamente comprado (truncado para baixo); a diferença de preço/quantidade
+- **Dentro da tolerância** (`fill_within_tolerance`): o BRL a pagar é derivado do
+  `filled_qty` (USDT recebido) da venda; transição `SELLING → SOLD`. A diferença
   dentro da tolerância é absorvida pelo markup.
 - **Abaixo da tolerância** (`not fill_within_tolerance`): transição
-  `BUYING → MANUAL_REVIEW` (`domain/state-machine.yaml`). O dinheiro está retido
-  e o operador decide: **entregar o parcial** (segue para `WITHDRAWING` com a
-  quantidade ajustada), **recomprar o restante** (a preço novo — risco do
-  operador) ou **reembolsar** (`REFUNDING`). Não há entrega silenciosa de valor
-  divergente do cotado.
+  `SELLING → MANUAL_REVIEW` (`domain/state-machine.yaml`). A cripto do cliente já
+  está conosco e o operador decide: **pagar o proporcional ao que vendeu**,
+  **vender o restante** (a preço novo — risco do operador) ou **devolver a cripto**
+  (`REFUNDING_CRYPTO`). Não há payout silencioso divergente do cotado.
 
 > TODO (parametrizar): o **valor exato da tolerância** (~10% é o teto do ADR-001)
 > e a regra default de MANUAL_REVIEW por under-fill — depende do apetite de risco

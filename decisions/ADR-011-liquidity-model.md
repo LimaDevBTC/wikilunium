@@ -3,7 +3,9 @@
 > Como o valor flui no cash-in: o operador como provedor de liquidez, com
 > estoques de entrada e saída desacoplados.
 
-> **STATUS: rascunho — revisar**
+> **STATUS: específico de CASH-IN → FASE 2 (ADR-016).** O MVP é cash-out, que é
+> capital-light (cliente traz o ativo; SmartPay frente o BRL) — sem estoque
+> pré-financiado. Este ADR volta a valer quando o cash-in entrar.
 
 - **Status:** Aceito (rascunho)
 - **Data:** 2026-06-12

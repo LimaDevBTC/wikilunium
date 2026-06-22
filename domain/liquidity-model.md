@@ -1,6 +1,9 @@
-# Liquidity Model — Os Dois Mundos (define o escopo do MVP)
+# Liquidity Model — Os Dois Mundos (cash-in)
 
-> **STATUS: rascunho — revisar com Guilherme**
+> **STATUS: específico de CASH-IN → FASE 2 (ADR-016).** O MVP passou a ser cash-out
+> (capital-light): o cliente traz o ativo e a SmartPay frente o BRL, então **não há
+> estoque pré-financiado nem os "dois mundos"**. Este documento descreve o modelo do
+> **cash-in** e volta a valer quando ele entrar (fase 2).
 > Este arquivo é a fonte de verdade sobre COMO o valor flui no cash-in e, por
 > consequência, o que o MVP automatiza e o que fica de fora. `state-machine.yaml`,
 > os providers e a reconciliação derivam daqui. Ver ADR-011.

@@ -5,6 +5,47 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
+### Pivot do MVP para cash-out (2026-06-21)
+
+**Mudança de escopo (ADR-016)**
+- O MVP passa de **cash-in** (comprar cripto) para **cash-out** (vender cripto →
+  PIX via SmartPay): caminho **FAST** (USDT em Polygon/Solana/Tron direto p/ a
+  SmartPay, ~10s) e **convert** (demais via MEXC: venda spot → USDT → SmartPay).
+  É capital-light (cliente traz o ativo; SmartPay frente o BRL). **Cash-in vira fase 2.**
+- `domain/state-machine.yaml` **reescrita** para o cash-out (QUOTE → AWAITING_DEPOSIT
+  → [FAST: payout] | [convert: DEPOSIT → SELLING → SOLD → FORWARDING] → PAYING_OUT →
+  COMPLETED; exceções `MANUAL_REVIEW`, `REFUNDING_CRYPTO/REFUNDED`).
+- `providers/_capability-contract.yaml`: port `off_ramp` (SmartPay: create_payout_order,
+  retry_payout, verify_webhook) + `exchange` (get_deposit_address, get_deposit,
+  **sell_spot**, withdraw p/ SmartPay); `on_ramp` (Eulen) → fase 2.
+
+**Providers**
+- SmartPay → **provedor confirmado do MVP**; Eulen (PIX-in) → **fase 2**; MEXC muda
+  de papel (recebe depósito + **vende** spot + saca USDT p/ a SmartPay).
+- ADR-011 (estoque dois-mundos) e ADR-014 (reserva anti-oversell) → **cash-in/fase 2**
+  (cash-out é capital-light, sem oversell).
+
+**Alinhamento**
+- Atualizados Lunium.md (§0/§3/§4/§5/§2/§6), roadmap (faixas/fases), money-rules
+  (venda, taxas FAST/convert, truncar a favor do operador), glossary, security
+  (threat-model/controls — webhook SmartPay, screening antes do payout, depósito
+  divergente) e runbooks (reconciliação e incidente no fluxo de venda).
+
+### Topologia de implantação + off-ramp FAST (2026-06-21)
+
+**Adicionado**
+- ADR-015 (topologia de implantação + IP de egress): keyholder (`lunium-api`) em
+  host persistente com **um IP estático** na allowlist dos provedores (~US$5/mês,
+  não US$100 da Vercel — lição do btcnopix/GetMoons); front sem chave nem IP;
+  nenhum cliente precisa de IP fixo. Segurança por camadas (privilégio mínimo +
+  allowlist de saque + HMAC + cofre), não só IP.
+- `providers/smartpay.md`: doutrina do off-ramp com **modo FAST** (USDT em
+  Polygon/Solana/Tron direto p/ a SmartPay, PIX em ~10s) e **modo convert** (demais
+  moedas via MEXC). Escopo (MVP vs fase 2) a confirmar — pauta.
+- `security/` (controls + threat-model): chaves de privilégio mínimo, allowlist de
+  endereço de saque, IP de egress único; `glossary.md`: off-ramp/modo FAST,
+  IP de egress, keyholder.
+
 ### Auditoria de engenharia (2026-06-12) — correções e novas decisões
 
 **Adicionado**

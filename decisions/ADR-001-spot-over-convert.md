@@ -21,7 +21,9 @@ nem medimos. Como movemos dinheiro de cliente, precisamos da rota mais barata,
 
 ## Decisão
 
-A compra é feita via **ordem spot** no par contra USDT. O **fill parcial** é
+A execução na MEXC é via **ordem spot** no par contra USDT. **No MVP (cash-out —
+ADR-016) é a VENDA spot** do ativo depositado → USDT (caminho convert); no cash-in
+(fase 2) seria a compra. Mesma lógica e os mesmos custos. O **fill parcial** é
 tratado: a ordem "market" é modelada como **limit IOC** com tolerância de ~10%
 (o IOC executa o que houver na hora e cancela o resto, limitando o slippage).
 
@@ -29,9 +31,10 @@ tratado: a ordem "market" é modelada como **limit IOC** com tolerância de ~10%
 
 - Implica um **client spot tipado próprio** (a demo MEXC não serve em produção —
   Lunium.md §7), com assinatura HMAC e tratamento de erro/retry.
-- **Tratamento de fill parcial** entra na máquina de estados: dentro da tolerância
-  `BUYING → BOUGHT`; abaixo da tolerância `BUYING → MANUAL_REVIEW` (operador
-  decide) — ver `domain/state-machine.yaml` e `domain/money-rules.md`.
+- **Tratamento de fill parcial** entra na máquina de estados: no cash-out (MVP),
+  dentro da tolerância `SELLING → SOLD`; abaixo da tolerância `SELLING →
+  MANUAL_REVIEW` (operador decide) — ver `domain/state-machine.yaml` e
+  `domain/money-rules.md`.
 - Exige **cálculo de preço/slippage** e validação de notional mínimo do par contra
   o catálogo (`exchange.get_catalog`).
 - O risco de preço entre o quote e o fill fica com o operador durante o TTL do

@@ -8,6 +8,19 @@
 ## Controle de acesso e segredos
 - Segredos em cofre, **fora do código**; `.gitignore` bloqueia `.env`/chaves.
 - Rotação de chaves — [`../runbooks/key-rotation.md`](../runbooks/key-rotation.md). TODO: cadência.
+- **Chaves de privilégio mínimo:** chaves de provedor separadas por função
+  (ler / negociar / **sacar**); a chave de saque ("joia da coroa") só no worker.
+- **Allowlist de endereço de saque** no provedor (a MEXC suporta): mesmo com a
+  chave comprometida, o saque só vai para endereços pré-aprovados — mais forte que
+  IP no pior caso.
+
+## Egress e IP allowlist de provedor (ADR-015)
+- O keyholder (`lunium-api`) roda em **host persistente com IP estático**; esse
+  **único IP** entra na allowlist de cada provedor (a Vercel/serverless não dá IP
+  fixo barato — lição do btcnopix). O **front nunca chama o provedor** e **nenhum
+  cliente precisa de IP fixo**.
+- IP allowlist é **uma camada** entre várias (chaves de privilégio mínimo +
+  allowlist de saque + HMAC + cofre), não o pilar único.
 
 ## Segregação de fundos
 - Sub-conta por usuário (ADR-002); reconciliação por sub-conta.
@@ -22,9 +35,10 @@
 - Pré-cheque sobre **disponível-para-prometer** (reserva — ADR-014), não saldo bruto.
 
 ## Compliance / screening
-- **Gate de screening** reservado antes de gerar PIX (`screening_passed` — seam).
-  Política (KYC/AML/sanções, quem executa) **pendente** — ADR-012 / pauta. Quando
-  fechar, vira controle ativo (não no-op).
+- **Gate de screening** reservado **antes do payout** em BRL (`screening_passed` —
+  seam). Crítico no cash-out (cripto→fiat é vetor de lavagem). Política (KYC/AML/
+  sanções, quem executa) **pendente** — ADR-012 / pauta. Quando fechar, vira
+  controle ativo (não no-op).
 
 ## Auditoria e logs
 - Trilha de auditoria **por transição de estado** e **por movimento de dinheiro**

@@ -9,9 +9,14 @@
      Extrair detalhes da demo oficial MEXC (Lunium.md §7); a demo NÃO é código de
      produção (sem retry/erro decente) — gerar client tipado próprio. -->
 
-## Papel (capability)
+## Papel (capability) — cash-out (ADR-016)
 
-- Implementa: `exchange` (buy_spot, withdraw_onchain, catálogo, sub-contas)
+- Implementa: `exchange`. No cash-out (caminho **convert**): **recebe o depósito**
+  do cliente na sub-conta (depósito identificável — ADR-002), **vende spot →
+  USDT** (`sell_spot`) e **saca o USDT para a SmartPay** (`withdraw_onchain`).
+  Também: `get_deposit_address`, `get_deposit`, catálogo, sub-contas.
+- O caminho **FAST** (USDT direto p/ a SmartPay) **não toca a MEXC**.
+- (Cash-in/`buy_spot` é fase 2.)
 
 ## Credenciais e ambiente
 
@@ -25,9 +30,9 @@
 - Pares negociáveis: filtrar via `exchangeInfo` / `selfSymbol`.
 - TODO: confirmar endpoints de ordem spot, withdraw e sub-conta.
 
-## Execução de compra
+## Execução de venda (cash-out convert)
 
-- Ordem **spot** contra USDT (ADR-001). Fill parcial: **limit IOC ~10%**.
+- Ordem **spot** (venda do ativo → USDT) (ADR-001). Fill parcial: **limit IOC ~10%**.
 
 ## Sub-contas
 

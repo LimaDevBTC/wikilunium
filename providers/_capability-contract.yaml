@@ -4,79 +4,77 @@
 #
 # Arquivo para MÁQUINA: parseado na geração de código (gera as interfaces tipadas)
 # e em runtime (seleção/validação de provedor).
-# STATUS: rascunho — revisar. (Operações derivadas da state-machine; tipos exatos
-# e valores específicos de provedor ficam nos providers/<nome>.md.)
+# STATUS: rascunho — revisar. (Operações derivadas da state-machine de CASH-OUT —
+# ADR-016; tipos exatos e valores de provedor ficam nos providers/<nome>.md.)
 #
 # PORTS & ADAPTERS (ADR-006): cada item de `ports` é uma INTERFACE; provedores
-# concretos são ADAPTERS que a implementam. Interface comum de todo port: nome,
-# operações (methods), modos de falha (failure_modes) e limites (limits). Trocar
-# de provedor = trocar o adapter, sem tocar no domínio (princípio 1).
+# concretos são ADAPTERS. Interface comum: nome, operações (methods), modos de
+# falha (failure_modes) e limites (limits). Trocar de provedor = trocar o adapter.
 #
-# As operações abaixo são exatamente as chamadas pelos `effect` da
-# domain/state-machine.yaml. Idempotência por etapa = ADR-007.
+# MVP = CASH-OUT (ADR-016): off_ramp (SmartPay) paga o BRL; exchange (MEXC) recebe
+# depósito, VENDE spot -> USDT e saca o USDT p/ a SmartPay (convert). on_ramp
+# (Eulen, PIX-in) é de cash-in -> fase 2.
 # =============================================================================
 
 version: 1
 
 # Adapters conhecidos (provider -> port). Detalhe real em providers/<nome>.md.
 adapters:
-  eulen:    { port: on_ramp,  status: mvp }      # providers/eulen.md
-  mexc:     { port: exchange, status: mvp }      # providers/mexc.md
-  smartpay: { port: off_ramp, status: fase_2 }   # providers/smartpay.md (fase 2)
+  smartpay: { port: off_ramp, status: mvp }      # providers/smartpay.md — paga BRL no PIX
+  mexc:     { port: exchange, status: mvp }       # providers/mexc.md — depósito + venda spot + saque
+  eulen:    { port: on_ramp,  status: fase_2 }    # providers/eulen.md — PIX-in (cash-in, fase 2)
 
 ports:
 
   # ---------------------------------------------------------------------------
-  on_ramp:
-    description: Entrada de fiat via PIX (cria cobrança, confirma pagamento).
-    limits: TODO            # ex.: Eulen ~10 ops/min — TODO: confirmar com conta nova
+  off_ramp:
+    description: Saída de cripto para BRL — recebe USDT e paga o cliente no PIX (SmartPay).
+    limits: TODO            # TODO: redes/tokens aceitos, limites, prazo de liquidação (conta SmartPay)
     methods:
 
-      create_pix_charge:
-        description: Cria cobrança PIX e retorna o QR / copia-e-cola.
+      create_payout_order:
+        description: Abre um pedido de payout e retorna o endereço de depósito p/ o cliente enviar o USDT (FAST). Idempotente por cash_out_id.
         inputs:
-          amount_brl: decimal        # valor em BRL
-          quote_id: string           # cotação que originou a cobrança
+          cash_out_id: string
+          asset: string             # USDT
+          network: string           # polygon | solana | tron
+          amount: decimal           # USDT esperado
+          brl_amount: decimal       # BRL a pagar (cotação)
+          pix_key: string           # destino do PIX do cliente
         outputs:
-          charge_id: string          # id da cobrança no provedor
-          qr_code: string            # payload copia-e-cola (e/ou imagem)
+          payout_order_id: string
+          deposit_address: string
+          deposit_tag: string       # memo/tag se a rede exigir
           expires_at: timestamp
-        failure_modes: [timeout, rejected, provider_unavailable]
-        idempotent: true             # chave: quote_id (ADR-007)
+        failure_modes: [rejected, network_unsupported, provider_unavailable]
+        idempotent: true            # chave: cash_out_id
 
-      get_charge_status:
-        description: Consulta o status de uma cobrança (fallback do webhook).
-        inputs: { charge_id: string }
-        outputs: { status: enum, paid_at: timestamp }   # status: pending|paid|expired
+      retry_payout:
+        description: Reenvia o payout (ex. após corrigir a chave PIX) sem re-receber o USDT.
+        inputs: { payout_order_id: string, pix_key: string }
+        outputs: { status: enum }   # paying | paid | failed
+        failure_modes: [invalid_pix_key, rejected, provider_unavailable]
+        idempotent: true            # chave: cash_out_id:payout
+
+      get_payout_status:
+        description: Consulta o status de um payout (fallback do webhook).
+        inputs: { payout_order_id: string }
+        outputs: { status: enum, paid_at: timestamp, pix_e2e_id: string }
         failure_modes: [not_found, provider_unavailable]
         idempotent: true
 
       verify_webhook:
-        description: Verifica assinatura do webhook e normaliza o evento de pagamento.
+        description: Verifica assinatura do webhook e normaliza o evento da SmartPay.
         inputs: { payload: bytes, signature: string }
-        outputs: { charge_id: string, status: enum, paid_amount_brl: decimal }
-        failure_modes: [signature_invalid, duplicate]   # duplicate = no-op idempotente (ADR-008)
-        idempotent: true             # chave: charge_id
-
-      refund_pix:
-        description: >
-          Devolve ao cliente o valor pago (caso "pago, não entregue" — estado REFUNDING).
-          MVP: status mvp_manual — devolução operacional/manual (runbook); a assinatura
-          abaixo reserva o port para a versão programática. TODO: confirmar se a Eulen
-          expõe devolução de PIX via API (ADR-012 / pauta).
-        status: mvp_manual
-        inputs:
-          charge_id: string          # cobrança original a devolver
-          amount_brl: decimal
         outputs:
-          refund_id: string
-          status: enum               # requested | completed | failed
-        failure_modes: [not_supported, rejected, provider_unavailable]
-        idempotent: true             # chave: cash_in_id:refund (state-machine.yaml)
+          payout_order_id: string
+          event: enum               # received (USDT chegou) | paid (PIX enviado) | failed
+        failure_modes: [signature_invalid, duplicate]   # duplicate = no-op idempotente (ADR-008)
+        idempotent: true            # chave: payout_order_id / cash_out_id
 
   # ---------------------------------------------------------------------------
   exchange:
-    description: Catálogo, compra spot, saque on-chain e sub-contas.
+    description: Catálogo, endereço de depósito, venda spot, saque on-chain e sub-contas (MEXC).
     limits: TODO            # TODO: rate limits, limites de saque por rede
     methods:
 
@@ -88,20 +86,34 @@ ports:
         failure_modes: [provider_unavailable]
         idempotent: true
 
-      buy_spot:
-        description: Ordem spot contra USDT (ADR-001). Market modelada como limit IOC ~10%.
+      get_deposit_address:
+        description: Endereço de depósito da sub-conta do cliente (CONVERT) — depósito identificável (ADR-002).
+        inputs: { subaccount_id: string, asset: string, network: string }
+        outputs: { address: string, tag: string }
+        failure_modes: [network_unsupported, provider_unavailable]
+        idempotent: true
+
+      get_deposit:
+        description: Status de um depósito on-chain (confirmações) — fonte dos eventos DEPOSIT_*.
+        inputs: { subaccount_id: string, asset: string, tx_id: string }
+        outputs: { status: enum, amount: decimal, confirmations: int }   # status: pending|confirmed
+        failure_modes: [not_found, provider_unavailable]
+        idempotent: true
+
+      sell_spot:
+        description: Venda spot do ativo depositado contra USDT (ADR-001 — agora venda). Market modelada como limit IOC ~10%.
         inputs:
-          subaccount_id: string      # sub-conta do usuário (ADR-002)
-          symbol: string             # par negociável
-          quote_amount: decimal      # quanto gastar (em USDT)
+          subaccount_id: string
+          symbol: string             # par negociável (ativo/USDT)
+          base_amount: decimal       # quanto vender (do ativo depositado)
         outputs:
           order_id: string
           status: enum               # filled | partially_filled | rejected
-          filled_qty: decimal
+          filled_qty: decimal        # USDT recebido
           avg_price: decimal
           fee: decimal
         failure_modes: [partial_fill, insufficient_balance, symbol_halted, provider_unavailable]
-        idempotent: true             # chave: order_id interno (ADR-007)
+        idempotent: true             # chave: cash_out_id:sell
 
       get_order:
         description: Status de uma ordem (confirma fill, inclusive parcial — ADR-001).
@@ -111,19 +123,20 @@ ports:
         idempotent: true
 
       withdraw_onchain:
-        description: Saque on-chain para a carteira do usuário.
+        description: Saque on-chain — USDT para a SmartPay (forward) ou cripto de volta ao cliente (refund).
         inputs:
           subaccount_id: string
           asset: string
-          network: string            # rede precisa estar habilitada (ADR-008: rede suspensa)
+          network: string            # rede precisa estar habilitada (failure: network_suspended)
           address: string
+          tag: string
           amount: decimal
         outputs:
           withdrawal_id: string
           status: enum               # requested | processing | completed | failed
           tx_id: string
         failure_modes: [network_suspended, address_invalid, insufficient_balance, provider_unavailable]
-        idempotent: true             # chave: withdrawal_id (evita saque dobrado)
+        idempotent: true             # chave: cash_out_id:forward | cash_out_id:refund (evita saque dobrado)
 
       get_withdrawal:
         description: Status do saque (confirmação on-chain).
@@ -133,7 +146,7 @@ ports:
         idempotent: true
 
       subaccount_create:
-        description: Cria sub-conta segregada por usuário (ADR-002).
+        description: Cria sub-conta segregada por usuário (ADR-002) — depósito identificável.
         inputs: { user_ref: string }
         outputs: { subaccount_id: string }
         failure_modes: [already_exists, provider_unavailable]
@@ -146,6 +159,13 @@ ports:
         failure_modes: [not_found, provider_unavailable]
         idempotent: true
 
+  # ---------------------------------------------------------------------------
+  # on_ramp (Eulen, PIX-in) é de CASH-IN -> fase 2 (ADR-016). Mantido aqui como
+  # casca; não usar no MVP. Doutrina/métodos em providers/eulen.md.
+  on_ramp:
+    status: fase_2
+    description: (FASE 2) Entrada de fiat via PIX para cash-in (comprar cripto). Não usar no MVP.
+
 # ---------------------------------------------------------------------------
 # Contratos transversais que TODO adapter respeita (a demo MEXC não os tem —
 # Lunium.md §7). Monitor em tempo real (MEXC): WebSocket privado, polling fallback.
@@ -154,7 +174,7 @@ cross_cutting:
   # Mecanismos DECIDIDOS; valores específicos de provedor (números) seguem TODO (Faixa B).
   idempotency:
     by: per_step
-    keys: state-machine.yaml   # chave natural por etapa: cash_in_id[:step] | charge_id | order_id | withdrawal_id
+    keys: state-machine.yaml   # cash_out_id[:step] | payout_order_id | order_id | deposit_tx_id | withdrawal_id
     enforcement: db_unique_constraint   # chave persistida com unique no Postgres (ADR-004); repetição = no-op
   outbox:
     enabled: true              # enfileira o próximo job na MESMA transação ACID da transição (ADR-013)
@@ -165,5 +185,5 @@ cross_cutting:
   error_normalization:
     rule: provider_error_to_failure_mode   # todo adapter mapeia erro do provedor -> failure_mode listado acima
   rate_limits:
-    eulen: ~10 ops/min         # TODO: confirmar com a conta nova (Faixa B)
+    smartpay: TODO             # TODO: confirmar com a conta SmartPay (Faixa B)
     mexc: TODO                 # TODO: rate limits de API + limites de saque por rede (Faixa B)

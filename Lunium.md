@@ -14,11 +14,12 @@ Lunium vende. Clientes plugam nessa infra para oferecer compra/venda de cripto
 aos seus usuários. O **Cliente #001 é `comprecripto.io`** (front próprio, repo
 `comprecripto-app`, separado) — ver `clients/comprecripto.md` e o ADR-005.
 
-A visão de produto é um **orquestrador de agentes**: o usuário fala (texto ou
-áudio) “quero comprar R$100 em BTC”, um agente conduz a conversa, e a execução
-determinística faz PIX → compra spot → saque on-chain para a carteira do
-usuário. **No MVP a camada de agente está adiada** (ADR-003) — o cash-in é 100%
-determinístico.
+A visão de produto é um **orquestrador de agentes** (compra e venda, texto/áudio),
+com execução determinística. **No MVP a camada de agente está adiada** (ADR-003) e
+o foco é **cash-out: o cliente VENDE cripto e recebe BRL no PIX** (ADR-016), via
+SmartPay — caminho **FAST** (USDT em Polygon/Solana/Tron direto p/ a SmartPay, PIX
+em ~10s) ou **convert** (demais moedas pela MEXC: venda spot → USDT → SmartPay).
+**Cash-in (comprar cripto) é fase 2.** Tudo 100% determinístico.
 
 **Princípios inegociáveis** (todo código e todo agente respeitam):
 
@@ -73,7 +74,9 @@ wikilunium/
 │   ├── ADR-011-liquidity-model.md         # dois mundos: World 1 auto, World 2 manual
 │   ├── ADR-012-compliance-kyc-aml.md      # PROPOSTO: gate de screening (política pendente)
 │   ├── ADR-013-transactional-outbox.md    # consistência fila↔banco (anti dual-write)
-│   └── ADR-014-liquidity-reservation.md   # reserva anti-oversell (available-to-promise)
+│   ├── ADR-014-liquidity-reservation.md   # reserva anti-oversell (available-to-promise)
+│   ├── ADR-015-deployment-topology-egress-ip.md  # onde roda + IP de egress (lição btcnopix)
+│   └── ADR-016-mvp-pivot-cash-out.md      # MVP = cash-out (vender cripto → PIX); cash-in vira fase 2
 ├── domain/
 │   ├── liquidity-model.md     # os dois mundos — define o escopo do MVP
 │   ├── state-machine.yaml     # estados canônicos (máquina) — fonte única
@@ -81,9 +84,9 @@ wikilunium/
 │   └── money-rules.md         # ticket mínimo, taxa embutida, arredondamento
 ├── providers/                 # doutrina de cada provedor = "capability"
 │   ├── _capability-contract.yaml   # interface que TODO provedor implementa
-│   ├── eulen.md               # on-ramp PIX (confirmado MVP)
-│   ├── mexc.md                # exchange (confirmado MVP)
-│   ├── smartpay.md            # off-ramp PIX (fase 2)
+│   ├── smartpay.md            # off-ramp PIX — paga BRL (confirmado MVP — ADR-016)
+│   ├── mexc.md                # exchange — recebe depósito + vende + saca p/ SmartPay (MVP)
+│   ├── eulen.md               # on-ramp PIX-in (cash-in — FASE 2)
 │   └── _candidates.md         # provedores citados, ainda não decididos
 ├── clients/                   # consumidores da infra Lunium
 │   └── comprecripto.md        # Cliente #001 (front comprecripto-app, separado)
@@ -114,29 +117,33 @@ wikilunium/
 |----------------|--------------------------------------------------------------------------------------------------------|
 |Pessoas         |Guilherme (CEO/dono), Mateus (ops/corretoras), Igor (investidor USD 20k), CTO (você, USD 3k integrações)|
 |Domínio         |`comprecripto.io` (registrado) — front do Cliente #001                                                                          |
-|MVP             |**Cash-in ponta a ponta + dashboard de reconciliação**                                                  |
-|Modelo de agente|**Adiado** — MVP é cash-in 100% determinístico. Agêntico vira fase 2 (ADR-003)                          |
-|Stack           |TypeScript/Node + NestJS (ADR-009) · Postgres (ADR-004) · DDD/hexagonal (ADR-006) · fila BullMQ/Redis (ADR-007)|
-|Exchange        |MEXC via spot API + sub-conta por usuário (ADR-001, ADR-002)                                            |
-|On-ramp         |Eulen (PIX)                                                                                             |
-|Off-ramp        |SmartPay (fase 2)                                                                                       |
+|MVP             |**Cash-out ponta a ponta** (vender cripto → PIX via SmartPay) — FAST + convert (ADR-016)                |
+|Modelo de agente|**Adiado** — MVP é cash-out 100% determinístico. Agêntico vira fase 2 (ADR-003)                         |
+|Stack           |TypeScript/Node + NestJS (ADR-009) · Postgres (ADR-004) · DDD/hexagonal (ADR-006) · fila BullMQ/Redis (ADR-007) · VPS + IP de egress (ADR-015)|
+|Off-ramp        |**SmartPay (PIX) — MVP**; recebe USDT e paga BRL                                                        |
+|Exchange        |MEXC — recebe depósito, **vende** spot → USDT, saca p/ SmartPay (convert); sub-conta por usuário (ADR-001, ADR-002)|
+|On-ramp         |Eulen (PIX-in) — **fase 2** (cash-in)                                                                   |
 
 -----
 
 ## 4. Escopo do MVP (corte fino)
 
-**Entra:** cash-in determinístico ponta a ponta (Quote → PIX QR Eulen → webhook
-→ spot buy MEXC → withdraw on-chain → carteira do usuário), **pré-cheque de
-liquidez** antes de cotar, catálogo dinâmico da MEXC, **dashboard de reconciliação
-de dois eixos**. Exposto como API headless para o `comprecripto-app` consumir.
-Cliente principal: comprecripto.io.
+**Entra (ADR-016):** **cash-out determinístico ponta a ponta** — o cliente vende
+cripto e recebe BRL no PIX, via SmartPay, em dois caminhos:
+- **FAST** — cliente envia **USDT (Polygon/Solana/Tron)** direto p/ a SmartPay →
+  PIX em ~10s. Rápido, taxa maior. Sem MEXC.
+- **Convert** — demais moedas → depósito na **sub-conta MEXC** do cliente → **venda
+  spot → USDT** → saque do USDT p/ a SmartPay → PIX. Mais lento, taxa menor.
 
-O operador atua como **provedor de liquidez**: a entrega sai de um **estoque MEXC
-pré-financiado**, desacoplado da entrada de DePix; reabastecer esse estoque é
-**manual** no MVP (Mundo 2). Ver `domain/liquidity-model.md` + ADR-011.
+Inclui catálogo dinâmico da MEXC, **screening de compliance** antes do payout
+(ADR-012) e reconciliação. Exposto como API headless para o `comprecripto-app`.
 
-**Fica para depois:** camada agêntica (chat texto/áudio), cash-out, múltiplos
-provedores simultâneos, troca automática de corretora, PIX próprio, moeda própria.
+**Capital-light:** o cliente traz o ativo e a SmartPay frente o BRL — **sem estoque
+pré-financiado nem reserva** (ADR-011/014 são de cash-in/fase 2).
+
+**Fica para depois:** **cash-in (comprar cripto — Eulen/PIX-in)**, camada agêntica
+(chat texto/áudio), múltiplos provedores simultâneos, troca automática de corretora,
+PIX próprio, moeda própria.
 
 A arquitetura **já nasce** preparada pra isso (capabilities plugáveis), mas o
 código v1 é uma fatia fina e determinística.
@@ -189,6 +196,15 @@ código v1 é uma fatia fina e determinística.
 - **ADR-014 — Reserva de liquidez (anti-oversell).** O pré-cheque usa o
   disponível-para-prometer (saldo − reservado − margem), não o saldo bruto; evita
   vender o mesmo estoque a vários clientes. Parâmetros pendentes de reunião.
+- **ADR-015 — Topologia de implantação e IP de egress.** O keyholder (`lunium-api`)
+  roda em host persistente com **um IP estático** na allowlist dos provedores
+  (~US$5/mês, não US$100 da Vercel — lição do btcnopix); o front (Vercel) não tem
+  chave nem IP; nenhum cliente precisa de IP fixo. Segurança por camadas (chaves de
+  privilégio mínimo + allowlist de saque + HMAC + cofre), não só IP.
+- **ADR-016 — MVP pivota para cash-out.** O primeiro produto passa a ser **vender
+  cripto → PIX via SmartPay** (FAST: USDT direto; convert: demais via MEXC). É
+  capital-light (cliente traz o ativo; SmartPay frente o BRL). **Cash-in vira fase
+  2**; Eulen sai do MVP; ADR-011/014 (estoque/reserva) são de cash-in.
 
 -----
 
@@ -196,11 +212,14 @@ código v1 é uma fatia fina e determinística.
 
 Começa imediatamente, roda em paralelo ao código:
 
-1. Conta Eulen empresarial nova (credenciais, webhook, limites — rate limit 10 ops/min)
+1. Conta **SmartPay** (off-ramp do MVP): credenciais, webhook de payout, redes/
+   tokens aceitos, limites, prazo de liquidação, **pré-funding de BRL?** (ADR-016).
 1. Conta MEXC institucional (KYB) no nome da entidade certa, com withdraw
-   habilitado — ver `runbooks/onboarding-mexc-broker.md`. KYB trava 1 conta por
-   CNPJ e não converte conta PF→PJ depois; nascer institucional desde já.
+   habilitado (saca USDT p/ a SmartPay) e sub-contas (depósito identificável) —
+   ver `runbooks/onboarding-mexc-broker.md`. KYB trava 1 conta por CNPJ e não
+   converte conta PF→PJ depois; nascer institucional desde já.
 1. Domínio + repos + chaves novas. **Zero reaproveitamento do ambiente antigo.**
+1. (Fase 2) Conta Eulen empresarial — só quando o cash-in entrar.
 
 -----
 
