@@ -5,6 +5,55 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
+### Hardening pré-go-live — Frente 4 (2026-06-22) — commit `97bcef5`
+
+**Dockerfile + build de produção**
+- `Dockerfile` multi-stage (node:20-alpine): stage `build` compila TypeScript; stage `runtime` instala só deps de produção.
+- `entrypoint.sh`: executa `npx prisma migrate deploy` antes de `exec node dist/main.js` — prod nunca sobe sem migrations aplicadas.
+- `.dockerignore`: exclui `node_modules/`, `dist/`, `.env`, `.env.*`, `test/`, `.git/`.
+- `docker compose --profile full up api` sobe a API com as dependências saudáveis.
+
+**ApiTokenGuard — auth dos endpoints públicos**
+- `src/api/guards/api-token.guard.ts`: verifica `Authorization: Bearer <CLIENT_API_TOKEN>`.
+- No-op quando `CLIENT_API_TOKEN` não está configurado (dev aberto por padrão).
+- Aplicado em `POST /cash-outs`, `POST /cash-outs/:id/accept`, `GET /cash-outs/:id`.
+- Webhook SmartPay (`POST /webhooks/smartpay`) e `/admin/*` ficam isentos (autenticados por HMAC e `ADMIN_TOKEN` respectivamente).
+
+**Rate limiting via `@nestjs/throttler`**
+- `ThrottlerModule` global: 5 req/min em `POST /cash-outs`, 10 em `/accept`, 60 em `GET /:id`.
+- `@SkipThrottle()` em webhook SmartPay e todos os endpoints `/admin/*`.
+- `THROTTLE_LIMIT` env para ajustar o default global (30 req/min) em staging.
+
+**AlertService — bot Telegram thin (alertas unidirecionais)**
+- `src/infrastructure/alert.service.ts`: `send(level, message)` fire-and-forget via `fetch` nativo (Node 20).
+- Emojis por nível: 🚨 `error`, ⚠️ `warn`, ℹ️ `info`. Formato Markdown.
+- Falha silenciosa com log — nunca bloqueia o fluxo principal.
+- No-op quando `TELEGRAM_BOT_TOKEN` ou `TELEGRAM_CHAT_ID` não configurados.
+- Hooks: `ReaperWorker` (expired → info, stuck → warn) + `CashOutOrchestrator` (FAILED/MANUAL_REVIEW → error, REFUNDING_CRYPTO → warn).
+- 52 testes passando (+ 12 novos: `ApiTokenGuard` × 5, `AlertService` × 7).
+
+---
+
+### Operabilidade e limites — Frente 3 (2026-06-22) — commit `c2deee2`
+
+**Circuit-breaker e limites diários**
+- `CASHOUT_ENABLED=false` fecha todas as novas cotações com HTTP 503.
+- `DailyLimitService`: verifica `DAILY_MAX_OPS` (nº de ops) e `DAILY_MAX_BRL` (volume BRL) antes de persistir cada cash-out. Zero = sem limite.
+- Verificação ocorre no `POST /cash-outs` ANTES de salvar no banco — sem rollback necessário.
+
+**Endpoints de operador/admin**
+- `AdminController` protegido por `ADMIN_TOKEN` (Bearer): sem token configurado = aberto em dev.
+- `GET /admin/cash-outs?state=&limit=&offset=` — lista com filtro e paginação (max 200).
+- `GET /admin/cash-outs/:id/events` — trilha ACID de todos os eventos de um cash-out.
+- `GET /admin/reconciliation` — snapshot: flag `cashoutEnabled`, `todayUsage` (ops + BRL), lista de `divergences`.
+
+**ReconciliationService**
+- Detecta cash-outs em estados intermediários parados além do TTL por estado: AWAITING_DEPOSIT por `expiresAt`; DEPOSIT_RECEIVED/SELLING/SOLD/PAYING_OUT = 30 min; FORWARDING = 60 min.
+- Resultado ordenado por `stuckSinceMs` decrescente (mais velho primeiro).
+- 40 testes passando (+ 20: `DailyLimitService` × 13, `ReconciliationService` × 7).
+
+---
+
 ### Implementação da lunium-api — Frente 1 + 2A (2026-06-22)
 
 **ADR-017 — Conta master + rastreamento por txId (supercede ADR-002)**

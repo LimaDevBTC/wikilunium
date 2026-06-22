@@ -85,21 +85,26 @@ Bloqueia fases adiante; rodar desde o dia 1.
 
 **Pronto quando (fakes):** ✅ | **Pronto quando (real):** depende da Faixa B.
 
-### Fase 4 — Reconciliação + visibilidade do operador
+### Fase 4 — Reconciliação + visibilidade do operador ✅ (parcial)
 **Objetivo:** fechar o MVP (§4) e dar ao Guilherme visão da operação (ADR-010).
 **Depende de:** Fase 3.
 **Entregáveis:**
-- [ ] Reconciliação depósito do cliente ↔ venda/saque MEXC ↔ payout SmartPay (PIX) — preencher [`runbooks/reconciliation.md`](runbooks/reconciliation.md).
-- [ ] **Dashboard de reconciliação**, exposto headless.
-- [ ] **Endpoints de operador/admin** + **stream de eventos** (transições de estado) na lunium-api (ADR-010).
-- [ ] **Bot operador (Telegram), determinístico, read-mostly** — alertas (ex.: `FAILED`) + consultas. Cliente separado da api (ADR-010). *Versão thin (só alertas) pode chegar já na Fase 3, quando a máquina passa a emitir eventos.*
+- [x] `ReconciliationService`: detecta cash-outs presos em estado intermediário além do TTL (por estado).
+- [x] **Dashboard de reconciliação** headless — `GET /admin/reconciliation` (divergências + uso do dia + flag circuit-breaker). Protegido por `ADMIN_TOKEN`.
+- [x] **Endpoints de operador/admin**: `GET /admin/cash-outs` (filtro/paginação) + `GET /admin/cash-outs/:id/events` (trilha ACID completa).
+- [x] **Bot Telegram thin** (alertas unidirecionais) — `AlertService` fire-and-forget; hooks no `ReaperWorker` e `CashOutOrchestrator`; no-op sem credenciais.
+- [~] Reconciliação formal depósito ↔ venda ↔ payout — lógica implementada em `ReconciliationService`; [`runbooks/reconciliation.md`](runbooks/reconciliation.md) ainda pendente de preenchimento.
+- [ ] Bot Telegram com **consultas** interativas (read-mostly) — alertas prontos; queries ficam para após o go-live.
 
 **Pronto quando:** divergências detectáveis e auditáveis; Guilherme recebe alertas e consulta a operação.
 
-### Fase 5 — Hardening, segurança e continuidade (pré-produção)
+### Fase 5 — Hardening, segurança e continuidade (pré-produção) 🔄 Em andamento
 **Objetivo:** merge-ready e operável sem o autor original.
 **Depende de:** Fase 3 (em paralelo com a 4).
 **Entregáveis:**
+- [x] `Dockerfile` multi-stage (node:20-alpine) + `entrypoint.sh` (executa `prisma migrate deploy` antes de subir).
+- [x] `ApiTokenGuard` (`CLIENT_API_TOKEN`) nos 3 endpoints públicos; webhook SmartPay e `/admin/*` isentos.
+- [x] Rate limiting (`@nestjs/throttler`): 5/min em `POST /cash-outs`, 10/min em `/accept`, 60/min em `GET /:id`; `THROTTLE_LIMIT` env para override.
 - [ ] [`security/threat-model.md`](security/threat-model.md) + [`security/controls.md`](security/controls.md) preenchidos (incl. lição do dev antigo).
 - [ ] Runbooks [`key-rotation.md`](runbooks/key-rotation.md) e [`incident-stuck-order.md`](runbooks/incident-stuck-order.md) preenchidos.
 - [ ] Confirmação explícita de movimento de dinheiro; auditoria/logs.
@@ -112,7 +117,8 @@ Bloqueia fases adiante; rodar desde o dia 1.
 **Depende de:** Fase 5 + compliance definido (ADR-012) + KYB com withdraw (Faixa B).
 **Entregáveis:**
 - [ ] **Allowlist** de usuários (só o time no começo) e **ticket mínimo/baixo**.
-- [ ] **Limite diário duro** de volume e de nº de operações; circuit-breaker manual.
+- [x] **Limite diário duro** de volume e nº de operações (`DAILY_MAX_OPS`, `DAILY_MAX_BRL`) — implementado em `DailyLimitService`.
+- [x] **Circuit-breaker manual** (`CASHOUT_ENABLED=false`) — fecha todas as novas cotações com 503.
 - [ ] Período de **shadow/canário** observado (reconciliação batendo 100%: depósito ↔ venda/saque ↔ payout) antes de abrir ao público.
 
 **Pronto quando:** N operações reais pequenas concluídas e reconciliadas sem divergência; limites prontos para subir gradualmente.

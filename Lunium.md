@@ -245,6 +245,7 @@ Começa imediatamente, roda em paralelo ao código:
 ## 8. Estado do código — `lunium-api` (2026-06-22)
 
 Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)
+HEAD: `97bcef5` · **52 testes passando**
 
 ### Concluído
 
@@ -256,7 +257,7 @@ Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/l
 - `QuoteService`: path FAST/CONVERT, validação catálogo, `truncateDown`, TTL 15 min
 - `CashOutController`: 4 endpoints (quote, accept, status, webhook SmartPay)
 - `CashOutWorker` + `ReaperWorker` (expiração e stuck jobs)
-- 20 testes E2E com `FakePersistence` + `FakeQueue` (FAST, CONVERT, idempotência, falhas)
+- 20+ testes E2E com `FakePersistence` + `FakeQueue` (FAST, CONVERT, idempotência, falhas)
 
 **Frente 2A — `MexcAdapter` real**
 - `MexcHttpClient`: HMAC-SHA256, `X-MEXC-APIKEY`, parse de erros `code/msg`
@@ -264,15 +265,27 @@ Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/l
 - Normalização de redes (TRX↔tron, SOL↔solana, MATIC↔polygon)
 - Idempotência no `sellSpot` (`DUPLICATE_CLIENT_ORDER` → busca por `origClientOrderId`)
 
-### Pendente (Faixa B — aguarda credenciais)
+**Frente 3 — Operabilidade e limites**
+- `DailyLimitService`: limites diários de nº de operações (`DAILY_MAX_OPS`) e volume BRL (`DAILY_MAX_BRL`)
+- Circuit-breaker manual `CASHOUT_ENABLED=false` fecha todas as novas cotações (503)
+- `AdminController`: `GET /admin/cash-outs` (filtro por estado, paginação), `GET /admin/cash-outs/:id/events` (trilha de auditoria), `GET /admin/reconciliation` — todos protegidos por `ADMIN_TOKEN`
+- `ReconciliationService`: detecta cash-outs presos em estado intermediário além do TTL (AWAITING_DEPOSIT por `expiresAt`, demais por TTL fixo por estado)
 
-- `SmartPayAdapter` real (Frente 2B)
-- Testes de integração contra sandbox MEXC e SmartPay
-- `MexcAdapter` registrado no `AppModule` (hoje usa `FakeMexc` em produção)
+**Frente 4 — Hardening pré-go-live**
+- `Dockerfile` multi-stage (node:20-alpine build + runtime) + `entrypoint.sh` que executa `prisma migrate deploy` antes de subir
+- `ApiTokenGuard`: verifica `CLIENT_API_TOKEN` (Bearer) nos 3 endpoints públicos; webhook SmartPay e `/admin/*` isentos
+- Rate limiting via `@nestjs/throttler`: 5 req/min em `POST /cash-outs`, 10 em `/accept`, 60 em `GET /:id`; override via `THROTTLE_LIMIT`
+- `AlertService`: bot Telegram thin, fire-and-forget — 🚨 FAILED/MANUAL_REVIEW, ⚠️ REFUNDING_CRYPTO/reaper stuck, ℹ️ quotes expiradas; no-op sem credenciais (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`)
+
+### Pendente (Faixa B — aguarda credenciais SmartPay)
+
+- `SmartPayAdapter` real (4 métodos, hoje `throw new Error('TODO...')`)
+- Testes de integração contra sandbox MEXC e SmartPay reais
+- Substituir `FakeMexc` por `MexcAdapter` real no `AppModule` (precisa das chaves MEXC em ambiente)
 
 ### Próximos passos técnicos
 
-1. **`SmartPayAdapter`** — quando as credenciais SmartPay chegarem
-2. **Registrar `MexcAdapter` no `AppModule`** — substituir `FakeMexc` (precisa das chaves MEXC)
-3. **Frente 3** — reconciliação + endpoints de operador + Telegram bot
-4. **Frente 4** — hardening, runbooks, gate de go-live
+1. **`SmartPayAdapter`** — aguarda credenciais SmartPay (Swagger prometido)
+2. **Registrar `MexcAdapter`** no `AppModule` — trocar `FakeMexc` pelas chaves reais
+3. **Testes de integração reais** — smoke test MEXC (depósito mínimo) + SmartPay sandbox
+4. **Gate de go-live** — allowlist de usuários, período canário com reconciliação batendo 100%
