@@ -10,9 +10,9 @@
 # SmartPay. Dois caminhos (providers/smartpay.md):
 #   - FAST   : cliente envia USDT (Polygon/Solana/Tron) DIRETO p/ a SmartPay, que
 #              paga o PIX em ~10s. Sem MEXC, sem conversão. (path == FAST)
-#   - CONVERT: demais moedas entram na sub-conta MEXC do cliente (ADR-002),
-#              vendemos spot -> USDT, sacamos o USDT p/ a SmartPay, que paga o PIX.
-#              (path == CONVERT)
+#   - CONVERT: demais moedas depositam na CONTA MASTER MEXC (ADR-017); depósito
+#              identificado por txId on-chain; vendemos spot -> USDT, sacamos o
+#              USDT p/ a SmartPay, que paga o PIX. (path == CONVERT)
 #
 # Inversão de risco vs. cash-in: aqui O CLIENTE MOVE PRIMEIRO (depósito on-chain é
 # IRREVERSÍVEL). Por isso há estados para depósito errado/atrasado, risco de preço
@@ -26,15 +26,16 @@
 # estado. Qualquer falha pós-depósito (dinheiro do cliente já em nossas mãos) vai
 # para MANUAL_REVIEW — nada termina em silêncio.
 #
-# Detecção de depósito: CONVERT usa a detecção da MEXC (depósito na sub-conta,
-# WebSocket/poll); FAST usa o webhook da SmartPay. Em ambos, um MONITOR long-running
-# (no VPS — ADR-015) traduz isso em eventos de domínio.
+# Detecção de depósito: CONVERT usa polling da MEXC (GET /capital/deposit/hisrec
+# filtrado por txId na conta master — ADR-017); FAST usa o webhook da SmartPay.
+# Em ambos, um MONITOR long-running (no VPS — ADR-015) traduz isso em eventos.
 #
 # Screening/compliance (ADR-012): guard `screening_passed` ANTES de pagar o payout
 # (cripto->fiat é vetor de lavagem). Hoje é seam/no-op; política pendente (pauta).
 #
-# Pré-requisito (não é estado): sub-conta do cliente (ADR-002) criada no onboarding
-# para depósito identificável no convert. A máquina assume `subaccount_id`.
+# Modelo de conta (ADR-017): conta master única para todos os depósitos CONVERT.
+# Depósito identificado por txId on-chain (não por sub-conta). A máquina assume
+# `depositTxId`; idempotência via `newClientOrderId` (venda) e `withdrawOrderId` (saque).
 # =============================================================================
 
 version: 1
@@ -55,7 +56,7 @@ states:
     on_timeout: EXPIRED
 
   - name: AWAITING_DEPOSIT
-    description: Cliente aceitou; mostramos o endereço de depósito (SmartPay no FAST; sub-conta MEXC no CONVERT). Aguarda o envio on-chain do cliente.
+    description: Cliente aceitou; mostramos o endereço de depósito (SmartPay no FAST; conta master MEXC no CONVERT — ADR-017). Aguarda o envio on-chain do cliente.
     type: normal
     timeout_s: TODO            # janela p/ o cliente depositar; limita o risco de preço (convert)
     on_timeout: EXPIRED
@@ -73,7 +74,7 @@ states:
     type: normal
 
   - name: SOLD
-    description: (CONVERT) Venda preenchida dentro da tolerância; USDT na sub-conta.
+    description: (CONVERT) Venda preenchida dentro da tolerância; USDT na conta master MEXC.
     type: normal
 
   - name: FORWARDING
@@ -138,7 +139,7 @@ transitions:
   - from: QUOTE_CREATED
     to: AWAITING_DEPOSIT
     event: QUOTE_ACCEPTED
-    guard: path == CONVERT and screening_passed    # CONVERT: endereço de depósito da sub-conta MEXC
+    guard: path == CONVERT and screening_passed    # CONVERT: endereço de depósito da conta master MEXC (ADR-017)
     effect: exchange.get_deposit_address
     trigger:
       type: queue_job
@@ -168,7 +169,7 @@ transitions:
       type: webhook_inbound
       idempotency_key: cash_out_id                 # webhook duplicado = no-op (ADR-008)
 
-  # --- CONVERT: depósito on-chain do cliente na sub-conta MEXC ---
+  # --- CONVERT: depósito on-chain do cliente na conta master MEXC (identificado por txId — ADR-017) ---
   - from: AWAITING_DEPOSIT
     to: DEPOSIT_DETECTED
     event: DEPOSIT_SEEN
