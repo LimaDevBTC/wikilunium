@@ -131,12 +131,31 @@ O ativo do cliente ainda está na nossa custódia?
 
 ---
 
-## 5. Como acionar as transições (estado atual)
+## 5. Como acionar as transições
 
-> Os endpoints `POST /admin/cash-outs/:id/transition` ainda não estão implementados.
-> Enquanto isso, as transições são aplicadas via:
-> 1. Script de suporte que chama `CashOutOrchestrator.apply()` diretamente
-> 2. Acesso ao banco com cuidado (registrar manualmente o `CashOutEvent`)
+```
+POST /admin/cash-outs/:id/action
+Authorization: Bearer <ADMIN_TOKEN>
+Content-Type: application/json
+
+{
+  "action": "retry_sell",
+  "reason": "MEXC voltou a negociar o par após suspensão de 20 min"
+}
+```
+
+Valores válidos para `action`:
+
+| action | Transição | Quando usar |
+|---|---|---|
+| `retry_sell` | MANUAL_REVIEW → SELLING | Refazer a venda spot |
+| `retry_forward` | MANUAL_REVIEW → FORWARDING | Refazer o saque USDT → SmartPay |
+| `retry_payout` | MANUAL_REVIEW → PAYING_OUT | Refazer o PIX (chave corrigida) |
+| `refund` | MANUAL_REVIEW → REFUNDING_CRYPTO | Iniciar devolução da cripto |
+| `write_off` | MANUAL_REVIEW → FAILED | Baixa terminal (irrecuperável) |
+| `complete_refund` | REFUNDING_CRYPTO → REFUNDED | Confirmar devolução concluída |
+
+O campo `reason` é **obrigatório** — fica nos logs para auditoria. Transição inválida retorna HTTP 422; cash-out inexistente retorna 404.
 
 Qualquer ação que move dinheiro deve ser registrada com: ID da operação, quem decidiu, quando, por quê, resultado.
 

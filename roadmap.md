@@ -93,7 +93,8 @@ Bloqueia fases adiante; rodar desde o dia 1.
 - [x] **Dashboard de reconciliação** headless — `GET /admin/reconciliation` (divergências + uso do dia + flag circuit-breaker). Protegido por `ADMIN_TOKEN`.
 - [x] **Endpoints de operador/admin**: `GET /admin/cash-outs` (filtro/paginação) + `GET /admin/cash-outs/:id/events` (trilha ACID completa).
 - [x] **Bot Telegram thin** (alertas unidirecionais) — `AlertService` fire-and-forget; hooks no `ReaperWorker` e `CashOutOrchestrator`; no-op sem credenciais.
-- [~] Reconciliação formal depósito ↔ venda ↔ payout — lógica implementada em `ReconciliationService`; [`runbooks/reconciliation.md`](runbooks/reconciliation.md) ainda pendente de preenchimento.
+- [x] Reconciliação formal: `ReconciliationService` implementado + [`runbooks/reconciliation.md`](runbooks/reconciliation.md) preenchido com procedimento completo e TTLs reais.
+- [x] `POST /admin/cash-outs/:id/action` — ações de resolução de `MANUAL_REVIEW`: `retry_sell`, `retry_forward`, `retry_payout`, `refund`, `complete_refund`, `write_off`. Campo `reason` obrigatório para auditoria.
 - [ ] Bot Telegram com **consultas** interativas (read-mostly) — alertas prontos; queries ficam para após o go-live.
 
 **Pronto quando:** divergências detectáveis e auditáveis; Guilherme recebe alertas e consulta a operação.
@@ -105,9 +106,9 @@ Bloqueia fases adiante; rodar desde o dia 1.
 - [x] `Dockerfile` multi-stage (node:20-alpine) + `entrypoint.sh` (executa `prisma migrate deploy` antes de subir).
 - [x] `ApiTokenGuard` (`CLIENT_API_TOKEN`) nos 3 endpoints públicos; webhook SmartPay e `/admin/*` isentos.
 - [x] Rate limiting (`@nestjs/throttler`): 5/min em `POST /cash-outs`, 10/min em `/accept`, 60/min em `GET /:id`; `THROTTLE_LIMIT` env para override.
-- [ ] [`security/threat-model.md`](security/threat-model.md) + [`security/controls.md`](security/controls.md) preenchidos (incl. lição do dev antigo).
-- [ ] Runbooks [`key-rotation.md`](runbooks/key-rotation.md) e [`incident-stuck-order.md`](runbooks/incident-stuck-order.md) preenchidos.
-- [ ] Confirmação explícita de movimento de dinheiro; auditoria/logs.
+- [x] [`security/threat-model.md`](security/threat-model.md) + [`security/controls.md`](security/controls.md) revisados e alinhados ao ADR-017.
+- [x] Runbooks [`key-rotation.md`](runbooks/key-rotation.md) e [`incident-stuck-order.md`](runbooks/incident-stuck-order.md) preenchidos com procedimentos reais.
+- [x] Confirmação explícita de movimento de dinheiro: `reason` obrigatório em `POST /admin/cash-outs/:id/action`; logs via `Logger.warn` para auditoria.
 - [ ] **Security review** aprovado (pré-condição de merge — princípio 4).
 
 **Pronto quando:** security review passa; runbooks operacionais completos; checklist de go-live fechado.

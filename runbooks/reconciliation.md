@@ -146,21 +146,26 @@ Ver §4 abaixo.
 
 ## 4. Resolvendo `MANUAL_REVIEW`
 
-> Nota: os endpoints de ação do operador (POST para acionar REVIEW_RETRY_*, REFUND_DECIDED, WRITE_OFF) ainda não estão implementados na API. Por enquanto, as transições são aplicadas diretamente via código/suporte.
+Via `POST /admin/cash-outs/:id/action` com `ADMIN_TOKEN`:
 
-Três caminhos possíveis:
+```json
+{ "action": "retry_sell", "reason": "MEXC voltou a negociar o par" }
+```
 
-| Caminho | Quando usar | Evento |
-|---|---|---|
-| Retomar venda | Falha temporária na MEXC; ativo ainda na conta master | `REVIEW_RETRY_SELL` |
-| Retomar forward | Venda OK, saque falhou; USDT na conta master | `REVIEW_RETRY_FORWARD` |
-| Retomar payout | USDT na SmartPay; PIX não confirmado | `REVIEW_RETRY_PAYOUT` |
-| Devolver cripto | Operação irrecuperável; cliente quer o ativo de volta | `REFUND_DECIDED` → `REFUNDING_CRYPTO` → `REFUNDED` |
-| Write-off | Cripto já não é recuperável (ex.: saque já foi feito mas desapareceu) | `WRITE_OFF` → `FAILED` |
+| action | Quando usar |
+|---|---|
+| `retry_sell` | Falha temporária na MEXC; ativo ainda na conta master |
+| `retry_forward` | Venda OK, saque falhou; USDT na conta master |
+| `retry_payout` | USDT na SmartPay; PIX não confirmado |
+| `refund` | Operação irrecuperável; cliente quer o ativo de volta |
+| `complete_refund` | Após confirmar saque de devolução on-chain concluído |
+| `write_off` | Cripto irrecuperável (documentar antes) |
+
+O campo `reason` é **obrigatório** (auditoria em log). Retorna `{ cashOutId, action, state }`.
 
 **Critério de devolução vs. write-off:**
-- Se o ativo ainda está na conta master MEXC ou na SmartPay e a transação pode ser revertida → devolução (`REFUND_DECIDED`).
-- Se o ativo foi movido para destino desconhecido ou a perda foi confirmada → write-off (`WRITE_OFF`) com documentação obrigatória.
+- Se o ativo ainda está na conta master MEXC ou na SmartPay → devolução (`refund`).
+- Se o ativo saiu e não pode ser recuperado → write-off (`write_off`) com documentação obrigatória.
 
 ---
 
