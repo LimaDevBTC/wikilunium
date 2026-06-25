@@ -5,6 +5,28 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
+### Allowlist canário + testes MexcAdapter (2026-06-25) — commit `8da1950`
+
+**Allowlist canário — Gate de go-live**
+- `CANARY_PIX_KEYS` env var (lista separada por vírgula): só as chaves PIX listadas conseguem criar cotações; qualquer outra recebe HTTP 403.
+- Vazio = aberto para todos (comportamento normal pós-canário).
+- Check executado após o circuit-breaker (`CASHOUT_ENABLED`) e antes do `DailyLimitService` — ordem de prioridade correta.
+- 10 testes: modo aberto, chave permitida, bloqueio, trim de espaços, CPF numérico, ordem dos checks.
+
+**Testes unitários MexcAdapter — 35 testes (fetch mockado)**
+- `getCatalog`: filtro de redes desabilitadas, limites conservadores entre múltiplas redes, normalização MEXC→nosso padrão.
+- `getDepositAddress`: mapeamento polygon→MATIC/solana→SOL/tron→TRX; tag/memo retornado quando presente.
+- `getDeposit`: lookup por txId no histórico; status pending/confirmed; lança quando não encontrado.
+- `sellSpot`: filled/canceled; idempotência — `DUPLICATE_CLIENT_ORDER` busca a ordem existente; normaliza `INSUFFICIENT_BALANCE` e `SYMBOL_HALTED`.
+- `getOrder`: filledQty=USDT recebido, avgPrice calculado; edge case executedQty=0.
+- `withdrawOnchain`: mapeamento de rede, addressTag; normaliza `ADDRESS_NOT_ALLOWLISTED` e `NETWORK_SUSPENDED`.
+- `getWithdrawal`: mapeamento status 0-6 → domínio; txId; lança quando não encontrado.
+- `getBalance`: asset encontrado/ausente; case-insensitive.
+- `MexcHttpClient`: envelope `{code, msg}`, HTTP non-200, resposta não-JSON.
+- 126 testes passando no total.
+
+---
+
 ### SmartPayAdapter real — Frente 5 (2026-06-25) — commit `18b1f4b`
 
 **SmartPayAdapter — implementação completa contra API WantsPay/Truther.sv**

@@ -245,7 +245,7 @@ Começa imediatamente, roda em paralelo ao código:
 ## 8. Estado do código — `lunium-api` (2026-06-25)
 
 Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)
-HEAD: `18b1f4b` · **81 testes passando**
+HEAD: `8da1950` · **126 testes passando**
 
 ### Concluído
 
@@ -271,7 +271,11 @@ HEAD: `18b1f4b` · **81 testes passando**
 - `getPayoutStatus`: `GET /v1/br/payments/off-ramp/status?txid=<txid>`
 - `verifyWebhook`: valida `apiKey` no header `x-signature`, extrai `payoutOrderId`
 - Fix orchestrator: CONVERT path obtém endereço SmartPay via `createPayoutOrder` antes do saque MEXC
-- 20 novos testes com `fetch` mockado
+- 20 testes unitários com `fetch` mockado
+
+**Frente 2B-extra — testes unitários `MexcAdapter` (35 testes)**
+- Cobre: getCatalog, getDepositAddress, getDeposit, sellSpot, getOrder, withdrawOnchain, getWithdrawal, getBalance
+- Idempotência `DUPLICATE_CLIENT_ORDER`, normalização de erros, mapeamento de redes em ambas as direções
 
 **Frente 3 — Operabilidade e limites**
 - `DailyLimitService`: limites diários de nº de operações (`DAILY_MAX_OPS`) e volume BRL (`DAILY_MAX_BRL`)
@@ -291,9 +295,10 @@ HEAD: `18b1f4b` · **81 testes passando**
 - **Confirmar formato de webhook SmartPay** — verificar se o campo `reference` ecoa o cashOutId/memo (ver `providers/smartpay.md`)
 - **Setup da conta SmartPay** — `POST /v1/application/create-source-address` para o endereço MEXC master; configurar webhook `PIX_OFFRAMP`
 - **Testes de integração reais** — smoke test MEXC (depósito mínimo + venda + saque) + SmartPay real
+- **Período canário** — `CANARY_PIX_KEYS` configurado; reconciliação batendo 100% antes de abrir ao público
 
 ### Próximos passos técnicos
 
 1. **Credenciais SmartPay** — configurar env vars, setup da conta (source-address + webhook), testar em sandbox
 2. **Testes de integração reais** — um ciclo completo FAST + um ciclo CONVERT com valores mínimos
-3. **Gate de go-live** — allowlist de usuários, período canário com reconciliação batendo 100%
+3. **Período canário** — `CANARY_PIX_KEYS` com chaves do time, N operações reais reconciliadas sem divergência

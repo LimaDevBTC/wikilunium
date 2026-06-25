@@ -117,7 +117,7 @@ Bloqueia fases adiante; rodar desde o dia 1.
 **Objetivo:** primeira transação real sem expor capital/clientes a um bug de fluxo.
 **Depende de:** Fase 5 + compliance definido (ADR-012) + KYB com withdraw (Faixa B).
 **Entregáveis:**
-- [ ] **Allowlist** de usuários (só o time no começo) e **ticket mínimo/baixo**.
+- [x] **Allowlist** de usuários — `CANARY_PIX_KEYS` env var; bloqueia com 403 qualquer chave fora da lista. Vazio = aberto para todos. (commit `8da1950`)
 - [x] **Limite diário duro** de volume e nº de operações (`DAILY_MAX_OPS`, `DAILY_MAX_BRL`) — implementado em `DailyLimitService`.
 - [x] **Circuit-breaker manual** (`CASHOUT_ENABLED=false`) — fecha todas as novas cotações com 503.
 - [ ] Período de **shadow/canário** observado (reconciliação batendo 100%: depósito ↔ venda/saque ↔ payout) antes de abrir ao público.
