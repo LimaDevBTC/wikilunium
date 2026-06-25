@@ -5,7 +5,36 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
-### Hardening pré-go-live — Frente 4 (2026-06-22) — commit `97bcef5`
+### SmartPayAdapter real — Frente 5 (2026-06-25) — commit `18b1f4b`
+
+**SmartPayAdapter — implementação completa contra API WantsPay/Truther.sv**
+- Autenticação JWT (`POST /v1/auth/login`) com cache de 55 min e renovação automática 5 min antes de expirar.
+- `createPayoutOrder`: encode do memo via `POST /v1/application/encode-memo` (formato MemoDataEVM `"<pixKey>|refund:<refundAddress>"`); retorna endereço de depósito SmartPay por rede (Polygon/Solana/Tron) configurado via env.
+- `getPayoutStatus`: `GET /v1/br/payments/off-ramp/status?txid=<txid>` — mapeia `SUCCESS → paid`, `FAILED|REFUNDED → failed`, demais → `paying`.
+- `verifyWebhook`: verifica `apiKey` no header `x-signature`; extrai `payoutOrderId` de `reference` (cashOutId echoed) ou fallback para `txid`.
+- `retryPayout`: no-op proposital — SmartPay não tem endpoint de retry explícito; o payout é re-tentado via fluxo normal ao receber USDT.
+- 20 novos testes unitários com `fetch` mockado. 81 testes passando.
+
+**Orchestrator — fix caminho CONVERT no FORWARDING**
+- Para CONVERT, `exchange.withdrawOnchain` agora chama `offRamp.createPayoutOrder` primeiro para obter o endereço SmartPay correto (antes usava `depositAddress = MEXC address`, o que estava semanticamente errado).
+- `payoutOrderId` e `depositAddress` (SmartPay) são persistidos atomicamente junto com `withdrawalId`.
+
+**`providers/smartpay.md`** — documento completo: autenticação, fluxo off-ramp, encode-memo, status, webhook, env vars, erros normalizados, perguntas em aberto.
+
+---
+
+### Endpoints de ação admin (MANUAL_REVIEW) — Frente 4-B (2026-06-23) — commit `f118100`
+
+**`POST /admin/cash-outs/:id/action`**
+- 6 ações: `retry_sell`, `retry_forward`, `retry_payout`, `refund`, `write_off`, `complete_refund`.
+- Campo `reason` obrigatório (auditoria em log via `Logger.warn`).
+- Retorna `{ cashOutId, action, state }`. HTTP 422 para transição inválida; 404 para cash-out inexistente.
+- Mapeamento `ACTION_TO_EVENT` canônico: `retry_sell → REVIEW_RETRY_SELL`, `refund → REFUND_DECIDED`, etc.
+- 9 novos testes unitários. `@SkipThrottle()` no AdminController inteiro.
+
+---
+
+### Hardening pré-go-live — Frente 4-A (2026-06-22) — commit `97bcef5`
 
 **Dockerfile + build de produção**
 - `Dockerfile` multi-stage (node:20-alpine): stage `build` compila TypeScript; stage `runtime` instala só deps de produção.

@@ -4,7 +4,7 @@
 > ADR-016): em que ordem construir, do que cada fase depende e quando ela está
 > "pronta". Não substitui os ADRs — **executa** o que eles decidiram.
 
-> **STATUS: atualizado em 2026-06-22**
+> **STATUS: atualizado em 2026-06-25**
 
 Ponto de entrada do projeto continua sendo o [`Lunium.md`](Lunium.md). Este plano
 assume tudo que está fechado lá (§4 escopo; ADR-001…009). **Sem datas**: trata de
@@ -60,17 +60,17 @@ Bloqueia fases adiante; rodar desde o dia 1.
 
 **Pronto quando:** build verde, CI rodando, job dummy idempotente passa em teste de integração. ✅
 
-### Fase 2 — Adapters de provedor (atrás dos ports) 🔄 Em andamento
+### Fase 2 — Adapters de provedor (atrás dos ports) ✅ (com fakes) / 🔄 integração real pendente
 **Objetivo:** SmartPay e MEXC como adapters, testáveis sem bater na API real.
 **Depende de:** Fase 1 + specs da Fase 0 + contas (Faixa B).
 **Entregáveis:**
-- [ ] Adapter **SmartPay** (off_ramp): `create_payout_order`, `retry_payout`, `get_payout_status`, verificação de webhook (received/paid/failed). + **fake**. ⏳ aguarda credenciais SmartPay
+- [x] Adapter **SmartPay** (off_ramp): `createPayoutOrder` (encode-memo + endereço por rede), `retryPayout` (no-op), `getPayoutStatus`, `verifyWebhook` (apiKey). + **fake**. JWT cacheado 55 min. (commit `18b1f4b`)
 - [x] Adapter **MEXC** (exchange — **ADR-017**: conta master + txId, sem sub-contas): `getCatalog`, `getDepositAddress`, `getDeposit`, `sellSpot` (IOC — ADR-001), `getOrder`, `withdrawOnchain`, `getWithdrawal`, `getBalance`. + **fake**.
 - [x] Erros normalizados (`MexcApiError` + `MEXC_CODE`); idempotência via `clientOrderId`/`withdrawOrderId`.
-- [x] Fakes cobrem cenários de falha do ADR-008: webhook duplicado, fill parcial, depósito divergente. *(testes E2E com fakes)*
-- [ ] Testes de integração contra sandbox real (MEXC + SmartPay) — aguarda contas (Faixa B).
+- [x] Fakes cobrem cenários de falha do ADR-008: webhook duplicado, fill parcial, depósito divergente. *(81 testes passando)*
+- [ ] Testes de integração contra real (MEXC + SmartPay) — aguarda credenciais (Faixa B). Setup SmartPay: `POST /v1/application/create-source-address` + webhook `PIX_OFFRAMP`.
 
-**Pronto quando:** cada adapter satisfaz o contrato + fakes; cenários de falha verdes.
+**Pronto quando (fakes):** ✅ | **Pronto quando (real):** depende da Faixa B.
 
 ### Fase 3 — Orquestração do cash-out (máquina de estados sobre a fila) ✅ (com fakes)
 **Objetivo:** o fluxo ponta a ponta, determinístico e recuperável.
