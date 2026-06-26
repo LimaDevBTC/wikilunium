@@ -5,6 +5,39 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
 ## [Não lançado]
 
+### Caminho DEX — Frente 6 (2026-06-26)
+
+**Terceiro caminho de cash-out: token qualquer em Polygon/Solana/Tron → swap on-chain → USDT → SmartPay → PIX**
+
+- `CashOutPath.DEX` adicionado ao enum (antes só FAST e CONVERT).
+- `QuoteService`: roteamento DEX — token não-USDT em rede FAST (polygon/solana/tron) → path DEX.
+  - Cotação **real-time** via `DexSwapPort.getSwapQuote()` (spread variável do DEX, não taxa fixa).
+  - BRL = `usdtOut_dex × fastRate` (vai pela SmartPay FAST depois do swap).
+  - FAST e CONVERT continuam com catálogo MEXC e taxa fixa.
+- `DexSwapPort` — novo port (`dex_swap` no capability-contract): `getSwapQuote`, `createSwapOrder`, `getSwapStatus`.
+- `DexSwapAdapter` — adapter real: chama o **quote-simulator** (Luis) via HTTP (`DEX_SWAP_BASE_URL` + `DEX_SWAP_API_KEY`).
+  - `/quote/simulate` → getSwapQuote; `/swap/deposit-wallet` → createSwapOrder.
+- `FakeDexSwap` — fake para testes com spread configurável e helper `completeOrder`.
+- State machine: nova transição `path==DEX && screening_passed` em `QUOTE_ACCEPTED` (effect `dexSwap.createSwapOrder`) e `path==DEX` em `AWAITING_DEPOSIT → PAYING_OUT`.
+- Orchestrator — effect `dexSwap.createSwapOrder`:
+  1. Cria payout SmartPay (obtém endereço + memo).
+  2. Cria ordem DEX com SmartPay como `receiver` → USDT cai direto na SmartPay na mesma tx.
+  3. `depositAddress` = carteira HD derivada pelo quote-simulator (o que o cliente vê para depositar).
+- 8 novos testes (`test/dex-path.spec.ts`): roteamento (MATIC/SOL/TRX → DEX, BTC → CONVERT), BRL com spread real, erro DEX, fluxo E2E DEX, verificação de receiver.
+- 134 testes passando no total.
+- `.env.example`: `DEX_SWAP_BASE_URL`, `DEX_SWAP_API_KEY`.
+- Wiki: `state-machine.yaml` (path DEX + transições), `_capability-contract.yaml` (port `dex_swap` + adapter `quote_simulator`).
+
+**Arquitetura do fluxo DEX (do cliente ao PIX):**
+```
+cliente deposita token → carteira HD (quote-simulator)
+  → quote-simulator detecta → executa swap DEX on-chain
+  → USDT cai direto no endereço SmartPay (receiver do swap)
+  → SmartPay webhook → lunium-api → PAYING_OUT → COMPLETED
+```
+
+---
+
 ### Allowlist canário + testes MexcAdapter (2026-06-25) — commit `8da1950`
 
 **Allowlist canário — Gate de go-live**

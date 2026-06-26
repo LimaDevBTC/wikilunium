@@ -20,9 +20,10 @@ version: 1
 
 # Adapters conhecidos (provider -> port). Detalhe real em providers/<nome>.md.
 adapters:
-  smartpay: { port: off_ramp, status: mvp }      # providers/smartpay.md — paga BRL no PIX
-  mexc:     { port: exchange, status: mvp }       # providers/mexc.md — depósito + venda spot + saque
-  eulen:    { port: on_ramp,  status: fase_2 }    # providers/eulen.md — PIX-in (cash-in, fase 2)
+  smartpay:         { port: off_ramp,  status: mvp }     # providers/smartpay.md — paga BRL no PIX
+  mexc:             { port: exchange,  status: mvp }      # providers/mexc.md — depósito + venda spot + saque
+  quote_simulator:  { port: dex_swap,  status: mvp }     # swap on-chain DEX (Jupiter/SunSwap/1inch) — caminho DEX
+  eulen:            { port: on_ramp,   status: fase_2 }   # providers/eulen.md — PIX-in (cash-in, fase 2)
 
 ports:
 
@@ -156,6 +157,48 @@ ports:
         description: Saldo de um ativo na sub-conta (reconciliação).
         inputs: { subaccount_id: string, asset: string }
         outputs: { available: decimal, locked: decimal }
+        failure_modes: [not_found, provider_unavailable]
+        idempotent: true
+
+  # ---------------------------------------------------------------------------
+  dex_swap:
+    description: Swap on-chain de qualquer token para USDT via DEX (Jupiter/SunSwap/1inch), antes de repassar à SmartPay (caminho DEX). Adapter MVP — quote-simulator (Luis).
+    methods:
+
+      get_swap_quote:
+        description: Cotação real-time do swap. Chamado em createQuote para calcular o brlAmount correto (DEX tem spread variável, não fixo).
+        inputs:
+          chain: string             # polygon | solana | tron
+          token: string             # símbolo ou endereço do token de entrada
+          amount: string            # valor humano (ex: "10.5")
+        outputs:
+          usdt_out: string          # USDT a receber após o swap (valor humano)
+          provider: string          # jupiter | sunswap | 1inch-classic
+          spread_pct: number        # spread efetivo do DEX (negativo = custo)
+        failure_modes: [token_unsupported, provider_unavailable, amount_below_minimum]
+        idempotent: true
+
+      create_swap_order:
+        description: Reserva um endereço HD único para o depósito do cliente e configura o receiver como o endereço SmartPay — o USDT cai direto na SmartPay na mesma transação do swap.
+        inputs:
+          cash_out_id: string
+          chain: string
+          token: string
+          amount: string
+          receiver_address: string  # endereço SmartPay (destino do USDT após o swap)
+          receiver_memo: string     # memo SmartPay (MemoDataEVM: "<pixKey>|refund:<addr>")
+        outputs:
+          deposit_address: string   # endereço HD derivado para o cliente depositar
+          expires_at: timestamp
+        failure_modes: [chain_unsupported, provider_unavailable]
+        idempotent: true            # chave: cash_out_id
+
+      get_swap_status:
+        description: Status do swap (usado pelo reaper para detectar falhas e ordens presas).
+        inputs: { cash_out_id: string }
+        outputs:
+          status: enum              # pending | swapping | completed | failed
+          usdt_out: string          # preenchido quando completed
         failure_modes: [not_found, provider_unavailable]
         idempotent: true
 

@@ -61,14 +61,15 @@ Bloqueia fases adiante; rodar desde o dia 1.
 **Pronto quando:** build verde, CI rodando, job dummy idempotente passa em teste de integração. ✅
 
 ### Fase 2 — Adapters de provedor (atrás dos ports) ✅ (com fakes) / 🔄 integração real pendente
-**Objetivo:** SmartPay e MEXC como adapters, testáveis sem bater na API real.
+**Objetivo:** SmartPay, MEXC e DEX Swap como adapters, testáveis sem bater nas APIs reais.
 **Depende de:** Fase 1 + specs da Fase 0 + contas (Faixa B).
 **Entregáveis:**
 - [x] Adapter **SmartPay** (off_ramp): `createPayoutOrder` (encode-memo + endereço por rede), `retryPayout` (no-op), `getPayoutStatus`, `verifyWebhook` (apiKey). + **fake**. JWT cacheado 55 min. (commit `18b1f4b`)
 - [x] Adapter **MEXC** (exchange — **ADR-017**: conta master + txId, sem sub-contas): `getCatalog`, `getDepositAddress`, `getDeposit`, `sellSpot` (IOC — ADR-001), `getOrder`, `withdrawOnchain`, `getWithdrawal`, `getBalance`. + **fake**.
+- [x] Adapter **DexSwap** (dex_swap — quote-simulator do Luis): `getSwapQuote` (cotação real-time DEX), `createSwapOrder` (carteira HD + SmartPay como receiver do swap), `getSwapStatus`. + **fake**.
 - [x] Erros normalizados (`MexcApiError` + `MEXC_CODE`); idempotência via `clientOrderId`/`withdrawOrderId`.
-- [x] Fakes cobrem cenários de falha do ADR-008: webhook duplicado, fill parcial, depósito divergente. *(81 testes passando)*
-- [ ] Testes de integração contra real (MEXC + SmartPay) — aguarda credenciais (Faixa B). Setup SmartPay: `POST /v1/application/create-source-address` + webhook `PIX_OFFRAMP`.
+- [x] Fakes cobrem cenários de falha do ADR-008: webhook duplicado, fill parcial, depósito divergente. *(134 testes passando)*
+- [ ] Testes de integração contra real (MEXC + SmartPay + quote-simulator) — aguarda credenciais (Faixa B). Setup SmartPay: `POST /v1/application/create-source-address` + webhook `PIX_OFFRAMP`.
 
 **Pronto quando (fakes):** ✅ | **Pronto quando (real):** depende da Faixa B.
 

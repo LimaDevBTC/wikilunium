@@ -242,10 +242,10 @@ Começa imediatamente, roda em paralelo ao código:
 
 -----
 
-## 8. Estado do código — `lunium-api` (2026-06-25)
+## 8. Estado do código — `lunium-api` (2026-06-26)
 
 Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)
-HEAD: `8da1950` · **126 testes passando**
+HEAD: pendente de push · **134 testes passando**
 
 ### Concluído
 
@@ -254,7 +254,7 @@ HEAD: `8da1950` · **126 testes passando**
 - `OutboxRelay`: polling 500ms, publica `OutboxJob` no BullMQ por `idempotencyKey`
 - `BullMqQueueAdapter`: `ConnectionOptions` via `REDIS_URL`
 - `CashOutOrchestrator`: guards determinísticos, dispatch de effects por nome, `hasApplied` early-exit
-- `QuoteService`: path FAST/CONVERT, validação catálogo, `truncateDown`, TTL 15 min
+- `QuoteService`: path FAST/DEX/CONVERT — DEX com cotação real-time via `DexSwapPort`, validação catálogo, `truncateDown`, TTL 15 min
 - `CashOutController`: 4 endpoints (quote, accept, status, webhook SmartPay)
 - `CashOutWorker` + `ReaperWorker` (expiração e stuck jobs)
 - 20+ testes E2E com `FakePersistence` + `FakeQueue` (FAST, CONVERT, idempotência, falhas)
@@ -290,15 +290,23 @@ HEAD: `8da1950` · **126 testes passando**
 - Rate limiting via `@nestjs/throttler`: 5 req/min em `POST /cash-outs`, 10 em `/accept`, 60 em `GET /:id`; override via `THROTTLE_LIMIT`
 - `AlertService`: bot Telegram thin, fire-and-forget — 🚨 FAILED/MANUAL_REVIEW, ⚠️ REFUNDING_CRYPTO/reaper stuck, ℹ️ quotes expiradas; no-op sem credenciais (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`)
 
+**Frente 6 — Caminho DEX (quote-simulator do Luis)**
+- `CashOutPath.DEX` — token não-USDT em Polygon/Solana/Tron → swap on-chain → USDT → SmartPay → PIX
+- `DexSwapPort` + `DexSwapAdapter` (HTTP para o quote-simulator) + `FakeDexSwap`
+- Orchestrator: effect `dexSwap.createSwapOrder` encadeia SmartPay (receiver) + DEX (HD wallet para o cliente)
+- 8 novos testes de roteamento e fluxo E2E DEX (134 total)
+
 ### Pendente (Faixa B — aguarda credenciais reais)
 
 - **Confirmar formato de webhook SmartPay** — verificar se o campo `reference` ecoa o cashOutId/memo (ver `providers/smartpay.md`)
 - **Setup da conta SmartPay** — `POST /v1/application/create-source-address` para o endereço MEXC master; configurar webhook `PIX_OFFRAMP`
-- **Testes de integração reais** — smoke test MEXC (depósito mínimo + venda + saque) + SmartPay real
+- **Deploy do quote-simulator** — configurar `DEX_SWAP_BASE_URL` + `DEX_SWAP_API_KEY` para ativar o caminho DEX
+- **Testes de integração reais** — smoke test MEXC + SmartPay + DEX swap com valores mínimos
 - **Período canário** — `CANARY_PIX_KEYS` configurado; reconciliação batendo 100% antes de abrir ao público
 
 ### Próximos passos técnicos
 
 1. **Credenciais SmartPay** — configurar env vars, setup da conta (source-address + webhook), testar em sandbox
-2. **Testes de integração reais** — um ciclo completo FAST + um ciclo CONVERT com valores mínimos
-3. **Período canário** — `CANARY_PIX_KEYS` com chaves do time, N operações reais reconciliadas sem divergência
+2. **Deploy do quote-simulator** — próprio repo, Docker, `DEX_SWAP_BASE_URL` configurado na lunium-api
+3. **Testes de integração reais** — um ciclo completo FAST + DEX + CONVERT com valores mínimos
+4. **Período canário** — `CANARY_PIX_KEYS` com chaves do time, N operações reais reconciliadas sem divergência

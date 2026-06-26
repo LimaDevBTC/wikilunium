@@ -7,12 +7,16 @@
 # operacionais: timeouts, retries, nº de confirmações por rede — Faixa B/pauta.)
 #
 # MVP = CASH-OUT (ADR-016): o cliente ENTREGA cripto e RECEBE BRL no PIX, via
-# SmartPay. Dois caminhos (providers/smartpay.md):
+# SmartPay. Três caminhos (providers/smartpay.md):
 #   - FAST   : cliente envia USDT (Polygon/Solana/Tron) DIRETO p/ a SmartPay, que
 #              paga o PIX em ~10s. Sem MEXC, sem conversão. (path == FAST)
-#   - CONVERT: demais moedas depositam na CONTA MASTER MEXC (ADR-017); depósito
-#              identificado por txId on-chain; vendemos spot -> USDT, sacamos o
-#              USDT p/ a SmartPay, que paga o PIX. (path == CONVERT)
+#   - DEX    : qualquer token em Polygon/Solana/Tron → swap on-chain via DEX
+#              (Jupiter/SunSwap/1inch) → USDT → SmartPay → PIX. Cliente deposita
+#              em carteira HD derivada pelo quote-simulator; USDT cai direto na
+#              SmartPay como receiver do swap. (path == DEX)
+#   - CONVERT: demais moedas/redes depositam na CONTA MASTER MEXC (ADR-017);
+#              depósito identificado por txId on-chain; vendemos spot -> USDT,
+#              sacamos o USDT p/ a SmartPay, que paga o PIX. (path == CONVERT)
 #
 # Inversão de risco vs. cash-in: aqui O CLIENTE MOVE PRIMEIRO (depósito on-chain é
 # IRREVERSÍVEL). Por isso há estados para depósito errado/atrasado, risco de preço
@@ -56,7 +60,7 @@ states:
     on_timeout: EXPIRED
 
   - name: AWAITING_DEPOSIT
-    description: Cliente aceitou; mostramos o endereço de depósito (SmartPay no FAST; conta master MEXC no CONVERT — ADR-017). Aguarda o envio on-chain do cliente.
+    description: "Cliente aceitou; mostramos o endereço de depósito: SmartPay direto (FAST), carteira HD do DEX (DEX) ou conta master MEXC (CONVERT — ADR-017). Aguarda envio on-chain do cliente."
     type: normal
     timeout_s: TODO            # janela p/ o cliente depositar; limita o risco de preço (convert)
     on_timeout: EXPIRED
@@ -82,7 +86,7 @@ states:
     type: normal
 
   - name: PAYING_OUT
-    description: SmartPay recebeu o USDT e está pagando o PIX ao cliente (FAST e CONVERT convergem aqui).
+    description: SmartPay recebeu o USDT e está pagando o PIX ao cliente (FAST, DEX e CONVERT convergem aqui).
     type: normal
     timeout_s: TODO
     on_timeout: MANUAL_REVIEW
@@ -160,7 +164,22 @@ transitions:
     event: DEPOSIT_NOT_RECEIVED
     trigger: { type: timeout }                     # cliente não depositou -> falha limpa
 
-  # --- FAST: SmartPay recebe o USDT e paga o PIX ---
+  # --- DEX: swap on-chain → USDT → SmartPay (receiver do swap = endereço SmartPay) ---
+  - from: QUOTE_CREATED
+    to: AWAITING_DEPOSIT
+    event: QUOTE_ACCEPTED
+    guard: path == DEX and screening_passed
+    effect: dex_swap.create_swap_order             # cria payout SmartPay + ordem DEX (SmartPay como receiver)
+    trigger:
+      type: queue_job
+      job: create_swap_order
+      idempotency_key: cash_out_id
+    on_failure:
+      retry: { max_attempts: TODO, backoff: TODO }
+      dead_letter: true
+      failure_state: EXPIRED
+
+  # --- FAST e DEX: SmartPay recebe USDT (direto ou via swap on-chain) e paga PIX ---
   - from: AWAITING_DEPOSIT
     to: PAYING_OUT
     event: SMARTPAY_RECEIVED
@@ -168,6 +187,14 @@ transitions:
     trigger:
       type: webhook_inbound
       idempotency_key: cash_out_id                 # webhook duplicado = no-op (ADR-008)
+
+  - from: AWAITING_DEPOSIT
+    to: PAYING_OUT
+    event: SMARTPAY_RECEIVED
+    guard: path == DEX
+    trigger:
+      type: webhook_inbound
+      idempotency_key: cash_out_id
 
   # --- CONVERT: depósito on-chain do cliente na conta master MEXC (identificado por txId — ADR-017) ---
   - from: AWAITING_DEPOSIT
