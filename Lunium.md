@@ -245,7 +245,7 @@ Começa imediatamente, roda em paralelo ao código:
 ## 8. Estado do código — `lunium-api` (2026-06-26)
 
 Repositório: [github.com/LimaDevBTC/lunium-api](https://github.com/LimaDevBTC/lunium-api)
-HEAD: pendente de push · **134 testes passando**
+HEAD: `ce99648` · **134 testes passando**
 
 ### Concluído
 
